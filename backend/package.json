@@ -1,0 +1,26 @@
+{
+  "name": "meshmap-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/index.ts",
+    "dev": "node --watch --disable-warning=ExperimentalWarning src/index.ts",
+    "simulate": "node --disable-warning=ExperimentalWarning scripts/simulate.ts",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "mqtt": "5.16.1",
+    "ws": "8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "@types/ws": "8.18.2",
+    "aedes": "1.2.0",
+    "typescript": "7.0.2"
+  }
+}

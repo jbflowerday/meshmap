@@ -1,0 +1,57 @@
+name: meshmap
+
+services:
+  mosquitto:
+    build: ./mosquitto
+    restart: unless-stopped
+    environment:
+      MQTT_ROOT_TOPIC: ${MQTT_ROOT_TOPIC:-msh}
+      MQTT_BACKEND_USER: ${MQTT_BACKEND_USER:-meshmap}
+      MQTT_BACKEND_PASSWORD: ${MQTT_BACKEND_PASSWORD:?set MQTT_BACKEND_PASSWORD in .env}
+      MQTT_NODE_USER: ${MQTT_NODE_USER:-meshdev}
+      MQTT_NODE_PASSWORD: ${MQTT_NODE_PASSWORD:?set MQTT_NODE_PASSWORD in .env}
+      MQTT_ALLOW_ANONYMOUS: ${MQTT_ALLOW_ANONYMOUS:-false}
+    ports:
+      - "${MQTT_PORT:-1883}:1883" # Meshtastic nodes connect here
+    volumes:
+      - mosquitto-data:/mosquitto/data
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    environment:
+      MQTT_URL: mqtt://mosquitto:1883
+      MQTT_USERNAME: ${MQTT_BACKEND_USER:-meshmap}
+      MQTT_PASSWORD: ${MQTT_BACKEND_PASSWORD}
+      MQTT_TOPICS: ${MQTT_TOPICS:-msh/#}
+      MESH_CHANNEL_KEYS: ${MESH_CHANNEL_KEYS:-AQ==}
+      RETENTION_DAYS: ${RETENTION_DAYS:-7}
+      NODE_MAX_AGE_DAYS: ${NODE_MAX_AGE_DAYS:-30}
+      LINK_MAX_AGE_HOURS: ${LINK_MAX_AGE_HOURS:-72}
+      MIN_PRECISION_BITS: ${MIN_PRECISION_BITS:-0}
+    volumes:
+      - backend-data:/data
+    # Not published: the frontend proxies /api and /ws to it.
+    expose:
+      - "3000"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_SITE_TITLE: ${SITE_TITLE:-MeshMap}
+        VITE_MAP_CENTER: ${MAP_CENTER:-}
+        VITE_MAP_ZOOM: ${MAP_ZOOM:-}
+        VITE_TILE_URL: ${TILE_URL:-}
+        VITE_TILE_ATTRIBUTION: ${TILE_ATTRIBUTION:-}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
+volumes:
+  mosquitto-data:
+  backend-data:
