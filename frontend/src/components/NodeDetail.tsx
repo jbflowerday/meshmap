@@ -116,6 +116,12 @@ export default function NodeDetail(p: Props) {
           <span className="font-semibold text-slate-300">Name not received yet.</span> Nodes broadcast their name (NODEINFO) about
           every 3 hours and shortly after they reboot. To get it now, open this node in the Meshtastic app on a device whose
           mesh reaches a gateway and use <span className="text-slate-300">Exchange user info</span>.
+          {detail?.name_request && !detail.name_request.answered_at && (
+            <div className="mt-1.5 text-emerald-300/90">
+              MeshMap asked this node for its name {timeAgo(detail.name_request.last_sent, p.now)}
+              {detail.name_request.attempts > 1 ? ` (attempt ${detail.name_request.attempts})` : ''}.
+            </div>
+          )}
         </div>
       )}
 

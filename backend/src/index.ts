@@ -3,6 +3,7 @@ import { config } from './config.ts';
 import { prune } from './db.ts';
 import { handleMessage } from './ingest.ts';
 import { startServer } from './server.ts';
+import { startNameRequester } from './nameRequests.ts';
 
 startServer();
 
@@ -23,6 +24,8 @@ client.on('connect', () => {
 client.on('reconnect', () => console.log('[mqtt] reconnecting...'));
 client.on('error', (err) => console.error('[mqtt] error:', err.message));
 client.on('message', (topic, payload) => handleMessage(topic, payload));
+
+startNameRequester((topic, payload) => client.publish(topic, payload, { qos: 0 }), () => client.connected);
 
 prune();
 setInterval(prune, 3600_000).unref();

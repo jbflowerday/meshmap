@@ -7,10 +7,10 @@
 import { createServer } from 'node:net';
 import { randomInt } from 'node:crypto';
 import mqtt from 'mqtt';
-import { DEFAULT_KEY, encrypt } from '../src/crypto.ts';
+import { DEFAULT_KEY, decrypt, encrypt } from '../src/crypto.ts';
 import {
   encodeData, encodeMeshPacket, encodeNeighborInfo, encodePosition, encodeRouteDiscovery, encodeServiceEnvelope,
-  encodeTelemetry, encodeUser, nodeIdFromNum, PortNum,
+  encodeTelemetry, encodeUser, nodeIdFromNum, PortNum, decodeServiceEnvelope, decodeData,
 } from '../src/proto/meshtastic.ts';
 
 const args = process.argv.slice(2);
@@ -26,6 +26,9 @@ const HOP_LIMIT = 3;
 const INTERVAL_MS = Number(arg('interval', '700'));
 // --stack N: put nodes 2..N+1 at node 1's exact position (tests overlapping markers)
 const STACK = Number(arg('stack', '0'));
+// --quiet N: N non-gateway nodes never announce their name on their own, but do
+// answer NODEINFO requests that arrive via MQTT downlink (tests NAME_REQUESTS)
+const QUIET = Number(arg('quiet', '0'));
 
 if (args.includes('--broker')) {
   const { Aedes } = await import('aedes');
@@ -132,8 +135,29 @@ function transmit(from: SimNode, portnum: number, payload: Uint8Array, opts: { t
   }
 }
 
-const sendNodeInfo = (n: SimNode) => transmit(n, PortNum.NODEINFO_APP,
-  encodeUser({ id: nodeIdFromNum(n.num), longName: n.name, shortName: n.short, hwModel: n.hw, role: n.role }));
+const quiet = new Set(nodes.filter((n) => !n.gateway).slice(0, QUIET).map((n) => n.num));
+const sendNodeInfo = (n: SimNode, to?: number) => {
+  if (quiet.has(n.num) && to === undefined) return;
+  transmit(n, PortNum.NODEINFO_APP,
+    encodeUser({ id: nodeIdFromNum(n.num), longName: n.name, shortName: n.short, hwModel: n.hw, role: n.role }), { to });
+};
+
+// Gateways with downlink enabled: deliver NODEINFO requests to the addressed node, which replies.
+const gatewayIds = new Set(nodes.filter((n) => n.gateway).map((n) => nodeIdFromNum(n.num)));
+client.subscribe(`${ROOT}/2/e/LongFast/+`);
+client.on('message', (topic, payload) => {
+  const sender = topic.split('/').pop() ?? '';
+  if (gatewayIds.has(sender)) return; // our own uplinks
+  try {
+    const p = decodeServiceEnvelope(payload).packet;
+    if (!p?.encrypted) return;
+    const d = decodeData(decrypt(p.encrypted, DEFAULT_KEY, p.id, p.from));
+    const target = nodes.find((n) => n.num === p.to);
+    if (d.portnum !== PortNum.NODEINFO_APP || !d.wantResponse || !target) return;
+    console.log(`[sim] downlink: ${nodeIdFromNum(p.from)} asked ${target.short} for its name; replying`);
+    setTimeout(() => sendNodeInfo(target, p.from), 1500);
+  } catch { /* not for us */ }
+});
 const sendPosition = (n: SimNode) => {
   if (n.role === 5) { n.lat += rand(-0.002, 0.002); n.lon += rand(-0.002, 0.002); } // trackers wander
   transmit(n, PortNum.POSITION_APP, encodePosition({
@@ -175,6 +199,7 @@ const sendTraceroute = () => {
 };
 
 for (const n of nodes) { sendNodeInfo(n); sendPosition(n); }
+if (QUIET) console.log(`[sim] quiet nodes (no spontaneous NODEINFO): ${[...quiet].map(nodeIdFromNum).join(', ')}`);
 for (const n of nodes) sendNeighbors(n);
 for (let i = 0; i < 5; i++) sendTraceroute();
 

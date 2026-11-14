@@ -14,6 +14,14 @@ events.setMaxListeners(0);
 
 export const counters = { messages: 0, packets: 0, decrypted: 0, undecryptable: 0, errors: 0 };
 
+/**
+ * How to reach the mesh through each gateway, learned from its uplinks:
+ * the MQTT root (e.g. "msh/ANZ"), the channel name and hash it uplinks on,
+ * and the channel key that decrypted its traffic. Used for downlink requests.
+ */
+export interface GatewayRoute { root: string; channelId: string; channelHash: number; key: Buffer; t: number }
+export const gatewayRoutes = new Map<number, GatewayRoute>();
+
 // --------------------------------------------------------------- dedupe
 // A packet heard by several gateways arrives several times. Payload is processed
 // once; per-gateway facts (hops, direct links) are recorded on every copy.
@@ -32,7 +40,7 @@ export function handleMessage(topic: string, payload: Buffer) {
     if (topic.includes('/json/')) return handleJson(payload);
     const env = decodeServiceEnvelope(payload);
     if (!env.packet) return;
-    handlePacket(env.packet, env.channelId, nodeNumFromId(env.gatewayId));
+    handlePacket(env.packet, env.channelId, nodeNumFromId(env.gatewayId), topic);
   } catch (err) {
     counters.errors++;
     if (process.env.DEBUG) console.warn(`[ingest] failed on ${topic}:`, (err as Error).message);
@@ -48,14 +56,14 @@ function handleStatus(topic: string, payload: Buffer) {
   events.emit('node', num);
 }
 
-function tryDecrypt(p: MeshPacket): Data | null {
+function tryDecrypt(p: MeshPacket): { data: Data; key: Buffer } | null {
   if (!p.encrypted || p.pkiEncrypted) return null;
   for (const key of config.keys) {
     try {
       const plain = decrypt(p.encrypted, key, p.id, p.from);
       const data = decodeData(plain);
       // Wrong key yields garbage; require a known port and sane structure.
-      if (data.portnum > 0 && PORT_NAMES[data.portnum] !== undefined) return data;
+      if (data.portnum > 0 && PORT_NAMES[data.portnum] !== undefined) return { data, key };
     } catch {
       /* try next key */
     }
@@ -63,16 +71,22 @@ function tryDecrypt(p: MeshPacket): Data | null {
   return null;
 }
 
-export function handlePacket(p: MeshPacket, channelId: string, gateway: number | null) {
+export function handlePacket(p: MeshPacket, channelId: string, gateway: number | null, topic?: string) {
   if (!p.from || p.from === BROADCAST) return;
   counters.packets++;
 
   const encrypted = !!p.encrypted;
   let data = p.decoded ?? null;
   if (!data && encrypted) {
-    data = tryDecrypt(p);
-    if (data) counters.decrypted++;
-    else counters.undecryptable++;
+    const res = tryDecrypt(p);
+    data = res?.data ?? null;
+    if (res) {
+      counters.decrypted++;
+      const at = topic?.indexOf('/2/e/') ?? -1;
+      if (gateway !== null && topic && at > 0 && channelId && channelId !== 'PKI') {
+        gatewayRoutes.set(gateway, { root: topic.slice(0, at), channelId, channelHash: p.channel, key: res.key, t: Date.now() });
+      }
+    } else counters.undecryptable++;
   }
 
   const hops = p.hopStart > 0 && p.hopStart >= p.hopLimit ? p.hopStart - p.hopLimit : null;

@@ -302,10 +302,73 @@ export function prune() {
   db.prepare('DELETE FROM traceroutes WHERE time < ?').run(hist);
   db.prepare('DELETE FROM links WHERE last_seen < ?').run(t - config.linkMaxAgeHours * 3600);
   db.prepare('DELETE FROM nodes WHERE last_heard < ?').run(t - config.nodeMaxAgeDays * 86400);
+  db.prepare('DELETE FROM name_requests WHERE num NOT IN (SELECT num FROM nodes)').run();
 }
 
 /** Marks a node as alive without counting a packet (e.g. a gateway uplinking others' traffic). */
 export function touchNode(num: number, id: string, patch: Record<string, unknown> = {}) {
   upsertNode(num, id, patch, false);
   prep('UPDATE nodes SET last_heard = ? WHERE num = ?').run(nowSec(), num);
+}
+
+// ---------------------------------------------------------------- name requests
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS name_requests (
+  num         INTEGER PRIMARY KEY,
+  last_sent   INTEGER NOT NULL,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  gateway     INTEGER,
+  answered_at INTEGER
+);
+`);
+
+export function getSetting(key: string): string | undefined {
+  return (prep('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value;
+}
+export function setSetting(key: string, value: string) {
+  prep('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
+}
+
+/** Unnamed nodes worth asking for their name, most recently heard first. */
+export function nameRequestCandidates(opts: { heardSince: number; firstSeenBefore: number; retryBefore: number; exclude: number }) {
+  return prep(`
+    SELECT n.num, n.last_gateway, n.hops_away FROM nodes n
+    LEFT JOIN name_requests r ON r.num = n.num
+    WHERE n.long_name IS NULL AND n.short_name IS NULL
+      AND n.last_heard >= ? AND n.first_seen <= ? AND n.last_gateway IS NOT NULL
+      AND n.num != ? AND n.num != n.last_gateway
+      AND (r.last_sent IS NULL OR r.last_sent < ?)
+    ORDER BY n.last_heard DESC LIMIT 50`)
+    .all(opts.heardSince, opts.firstSeenBefore, opts.exclude, opts.retryBefore) as { num: number; last_gateway: number; hops_away: number | null }[];
+}
+
+export function recordNameRequest(num: number, gateway: number) {
+  prep(`INSERT INTO name_requests (num, last_sent, attempts, gateway) VALUES (?, ?, 1, ?)
+        ON CONFLICT(num) DO UPDATE SET last_sent = excluded.last_sent, attempts = name_requests.attempts + 1,
+          gateway = excluded.gateway, answered_at = NULL`).run(num, nowSec(), gateway);
+}
+
+/** Marks outstanding requests answered once the node has a name. Returns how many. */
+export function markNameRequestsAnswered(): number {
+  const r = prep(`UPDATE name_requests SET answered_at = ? WHERE answered_at IS NULL AND num IN
+        (SELECT num FROM nodes WHERE long_name IS NOT NULL OR short_name IS NOT NULL)`).run(nowSec());
+  return Number(r.changes);
+}
+
+export function getNameRequest(num: number) {
+  return prep('SELECT last_sent, attempts, gateway, answered_at FROM name_requests WHERE num = ?').get(num) as
+    | { last_sent: number; attempts: number; gateway: number | null; answered_at: number | null }
+    | undefined;
+}
+
+export function nameRequestStats() {
+  const one = (sql: string, ...a: number[]) => Number((prep(sql).get(...a) as { c: number }).c);
+  return {
+    sentLastHour: one('SELECT COUNT(*) c FROM name_requests WHERE last_sent >= ?', nowSec() - 3600),
+    sent24h: one('SELECT COUNT(*) c FROM name_requests WHERE last_sent >= ?', nowSec() - 86400),
+    answered: one('SELECT COUNT(*) c FROM name_requests WHERE answered_at IS NOT NULL'),
+    pending: one('SELECT COUNT(*) c FROM name_requests WHERE answered_at IS NULL'),
+  };
 }

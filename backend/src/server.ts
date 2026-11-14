@@ -4,6 +4,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { config } from './config.ts';
 import * as db from './db.ts';
 import { counters, events } from './ingest.ts';
+import { nameRequestStatus } from './nameRequests.ts';
 import { hwName, nodeNumFromId, PORT_NAMES, ROLE_NAMES } from './proto/meshtastic.ts';
 
 const linkMaxAge = () => config.linkMaxAgeHours * 3600;
@@ -40,7 +41,11 @@ const parseNum = (s: string): number | null => (/^\d+$/.test(s) ? Number(s) >>> 
 type Handler = (url: URL, m: RegExpExecArray) => [number, unknown];
 const routes: [RegExp, Handler][] = [
   [/^\/api\/health$/, () => [200, { ok: true, counters }]],
-  [/^\/api\/stats$/, () => [200, { ...db.stats(linkMaxAge()), ingest: counters }]],
+  [/^\/api\/stats$/, () => [200, {
+    ...db.stats(linkMaxAge()),
+    ingest: counters,
+    nameRequests: { enabled: nameRequestStatus.enabled, nodeId: nameRequestStatus.nodeId, ...db.nameRequestStats() },
+  }]],
   [/^\/api\/nodes$/, () => [200, db.listNodes().map(serializeNode)]],
   [/^\/api\/links$/, () => [200, db.listLinks(linkMaxAge())]],
   [/^\/api\/traceroutes$/, (u) => [200, db.listTraceroutes(Math.min(Number(u.searchParams.get('limit')) || 100, 500))]],
@@ -54,6 +59,7 @@ const routes: [RegExp, Handler][] = [
     const since = db.nowSec() - hours * 3600;
     return [200, {
       node: serializeNode(node),
+      name_request: nameRequestStatus.enabled ? db.getNameRequest(num) ?? null : null,
       links: db.linksForNode(num, linkMaxAge()),
       traceroutes: db.listTraceroutes(20, num),
       positions: db.positionsForNode(num, since),

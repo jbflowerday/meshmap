@@ -94,6 +94,8 @@ export interface NodeDetail {
     air_util_tx: number | null; temperature: number | null; humidity: number | null; pressure: number | null;
   }[];
   packets: PacketRow[];
+  /** Present when automatic name requests are enabled and this node has been asked. */
+  name_request?: { last_sent: number; attempts: number; gateway: number | null; answered_at: number | null } | null;
 }
 
 export interface Stats {
