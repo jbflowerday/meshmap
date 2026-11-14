@@ -1,7 +1,7 @@
 // Publishes realistic, encrypted Meshtastic MQTT traffic for a fake mesh so the
 // map can be developed/demoed without real radios.
 //
-//   node scripts/simulate.ts [--broker] [--nodes 30] [--url mqtt://localhost:1883]
+//   node scripts/simulate.ts [--broker] [--nodes 30] [--stack 0] [--url mqtt://localhost:1883]
 //
 // --broker starts an embedded MQTT broker (aedes) on :1883 for local dev without Docker.
 import { createServer } from 'node:net';
@@ -24,6 +24,8 @@ const CENTER = { lat: Number(process.env.SIM_LAT ?? 39.7392), lon: Number(proces
 const ROOT = process.env.SIM_ROOT ?? 'msh/US';
 const HOP_LIMIT = 3;
 const INTERVAL_MS = Number(arg('interval', '700'));
+// --stack N: put nodes 2..N+1 at node 1's exact position (tests overlapping markers)
+const STACK = Number(arg('stack', '0'));
 
 if (args.includes('--broker')) {
   const { Aedes } = await import('aedes');
@@ -57,6 +59,11 @@ const nodes: SimNode[] = Array.from({ length: N }, (_, i) => {
     gateway: i % 9 === 4 || i === 1,
   };
 });
+
+for (let i = 1; i <= STACK && i < nodes.length; i++) {
+  nodes[i].lat = nodes[0].lat;
+  nodes[i].lon = nodes[0].lon;
+}
 
 const distKm = (a: SimNode, b: SimNode) => {
   const R = 6371;

@@ -123,4 +123,4 @@ Pointing the simulator at the Docker broker also works:
 MQTT_USERNAME=meshdev MQTT_PASSWORD=... npm run simulate -- --url mqtt://localhost:1883
 ```
 
-Simulator options are `--nodes N` and `--interval ms`. Set `SIM_LAT` and `SIM_LON` to move the fake mesh.
+Simulator options are `--nodes N`, `--interval ms` and `--stack N` (puts N extra nodes at the same spot, to test overlapping markers). Set `SIM_LAT` and `SIM_LON` to move the fake mesh.

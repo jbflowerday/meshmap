@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import {
-  LayersControl, MapContainer, Marker, Pane, Polyline, Popup, TileLayer, Tooltip, useMap, useMapEvents,
+  CircleMarker, LayersControl, MapContainer, Marker, Pane, Polyline, Popup, TileLayer, Tooltip, useMap, useMapEvents,
 } from 'react-leaflet';
 import type { Edge, MeshNode } from '../types';
+import { declutter } from '../lib/declutter';
 import { hasName, nodeColor, nodeName, shortName, snrColor, snrLabel, timeAgo, isRouter, type ColorBy } from '../lib/format';
 
 export interface MapFocus {
@@ -131,17 +132,34 @@ export default function MapView(p: Props) {
   const positioned = useMemo(() => p.nodes.filter((n) => n.lat !== null && n.lon !== null), [p.nodes]);
   const pathSet = useMemo(() => new Set(p.path ?? []), [p.path]);
   const labels = p.showLabels && zoom >= 9;
+  const labelOf = (n: MeshNode) => (labels || n.num === p.selected ? shortName(n) : '');
+
+  // Spread overlapping markers side by side. Only recompute when something that
+  // affects layout changes (live updates arrive every second).
+  const layoutKey = positioned.map((n) => `${n.num},${n.lat},${n.lon},${labelOf(n)}`).join(';') + `@${zoom}`;
+  const placed = useMemo(
+    () => declutter(positioned.map((n) => ({ num: n.num, lat: n.lat!, lon: n.lon!, label: labelOf(n) })), zoom),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [layoutKey],
+  );
+  /** Where a node is drawn: its decluttered spot if visible, else its real position. */
+  const pos = (n: MeshNode | undefined): [number, number] | null => {
+    if (n?.lat == null || n.lon == null) return null;
+    const q = placed.get(n.num);
+    return q ? [q.lat, q.lon] : [n.lat, n.lon];
+  };
 
   const pathSegments = useMemo(() => {
     if (!p.path) return [];
     const segs: [number, number][][] = [];
     for (let i = 0; i + 1 < p.path.length; i++) {
-      const a = p.nodesByNum.get(p.path[i]);
-      const b = p.nodesByNum.get(p.path[i + 1]);
-      if (a?.lat != null && b?.lat != null) segs.push([[a.lat, a.lon!], [b.lat, b.lon!]]);
+      const a = pos(p.nodesByNum.get(p.path[i]));
+      const b = pos(p.nodesByNum.get(p.path[i + 1]));
+      if (a && b) segs.push([a, b]);
     }
     return segs;
-  }, [p.path, p.nodesByNum]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.path, p.nodesByNum, placed]);
 
   return (
     <MapContainer
@@ -185,7 +203,9 @@ export default function MapView(p: Props) {
         {p.showLinks && p.edges.map((e) => {
           const a = p.nodesByNum.get(e.a);
           const b = p.nodesByNum.get(e.b);
-          if (a?.lat == null || b?.lat == null) return null;
+          const pa = pos(a);
+          const pb = pos(b);
+          if (!pa || !pb || !a || !b) return null;
           const touches = p.selected !== null && (e.a === p.selected || e.b === p.selected);
           const dim = (p.selected !== null && !touches) || (p.path !== null && !touches);
           const known = [e.snrAB, e.snrBA].filter((x): x is number => x !== null);
@@ -194,7 +214,7 @@ export default function MapView(p: Props) {
           return (
             <Polyline
               key={e.key}
-              positions={[[a.lat, a.lon!], [b.lat, b.lon!]]}
+              positions={[pa, pb]}
               pathOptions={{
                 color: snrColor(snr),
                 weight: touches ? 3.5 : 2,
@@ -228,14 +248,39 @@ export default function MapView(p: Props) {
         ))}
       </Pane>
 
+      {/* Leader lines from a moved marker back to the node's real location. */}
+      <Pane name="leaders" style={{ zIndex: 415 }}>
+        {positioned.map((n) => {
+          const q = placed.get(n.num);
+          if (!q?.moved) return null;
+          return (
+            <Polyline
+              key={n.num}
+              positions={[[n.lat!, n.lon!], [q.lat, q.lon]]}
+              pathOptions={{ color: '#94a3b8', weight: 1, opacity: 0.7, renderer: canvas }}
+              interactive={false}
+            />
+          );
+        })}
+        {positioned.map((n) => (placed.get(n.num)?.moved ? (
+          <CircleMarker
+            key={`d${n.num}`}
+            center={[n.lat!, n.lon!]}
+            radius={2.5}
+            pathOptions={{ color: '#0b1120', weight: 1, fillColor: '#cbd5e1', fillOpacity: 1, renderer: canvas }}
+            interactive={false}
+          />
+        ) : null))}
+      </Pane>
+
       {positioned.map((n) => {
         const color = nodeColor(n, p.colorBy, p.now);
         const sel = n.num === p.selected;
         return (
           <Marker
             key={n.num}
-            position={[n.lat!, n.lon!]}
-            icon={nodeIcon(labels || sel ? shortName(n) : '', color, {
+            position={pos(n)!}
+            icon={nodeIcon(labelOf(n), color, {
               selected: sel, router: isRouter(n), gateway: !!n.is_gateway, onPath: pathSet.has(n.num), labels: labels || sel,
               unnamed: !hasName(n),
             })}
