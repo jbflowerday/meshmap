@@ -21,7 +21,10 @@ export function duration(sec: number | null | undefined): string {
   return `${m}m`;
 }
 
-export const nodeName = (n: MeshNode | undefined, fallbackNum?: number) =>
+/** False until the node's NODEINFO (or map report) has been received. */
+export const hasName = (n: MeshNode | undefined) => !!(n?.long_name || n?.short_name);
+
+export const nodeName =(n: MeshNode | undefined, fallbackNum?: number) =>
   n?.long_name || n?.short_name || n?.id || (fallbackNum !== undefined ? '!' + (fallbackNum >>> 0).toString(16).padStart(8, '0') : '?');
 
 export const shortName = (n: MeshNode | undefined, fallbackNum?: number) =>

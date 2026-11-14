@@ -4,7 +4,7 @@ import {
   LayersControl, MapContainer, Marker, Pane, Polyline, Popup, TileLayer, Tooltip, useMap, useMapEvents,
 } from 'react-leaflet';
 import type { Edge, MeshNode } from '../types';
-import { nodeColor, nodeName, shortName, snrColor, snrLabel, timeAgo, isRouter, type ColorBy } from '../lib/format';
+import { hasName, nodeColor, nodeName, shortName, snrColor, snrLabel, timeAgo, isRouter, type ColorBy } from '../lib/format';
 
 export interface MapFocus {
   lat: number;
@@ -47,11 +47,11 @@ const TILE_ATTRIBUTION = (import.meta.env.VITE_TILE_ATTRIBUTION as string | unde
 const canvas = L.canvas({ padding: 0.5, tolerance: window.matchMedia("(pointer: coarse)").matches ? 2 : 5 });
 const iconCache = new Map<string, L.DivIcon>();
 
-function nodeIcon(label: string, color: string, opts: { selected: boolean; router: boolean; gateway: boolean; onPath: boolean; labels: boolean }) {
-  const key = `${label}|${color}|${opts.selected}|${opts.router}|${opts.gateway}|${opts.onPath}|${opts.labels}`;
+function nodeIcon(label: string, color: string, opts: { selected: boolean; router: boolean; gateway: boolean; onPath: boolean; labels: boolean; unnamed: boolean }) {
+  const key = `${label}|${color}|${opts.selected}|${opts.router}|${opts.gateway}|${opts.onPath}|${opts.labels}|${opts.unnamed}`;
   let icon = iconCache.get(key);
   if (icon) return icon;
-  const cls = ['mm-node', opts.router && 'mm-router', opts.gateway && 'mm-gateway', opts.selected && 'mm-selected', opts.onPath && 'mm-onpath']
+  const cls = ['mm-node', opts.router && 'mm-router', opts.gateway && 'mm-gateway', opts.selected && 'mm-selected', opts.onPath && 'mm-onpath', opts.unnamed && 'mm-unnamed']
     .filter(Boolean)
     .join(' ');
   const safe = label.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -237,6 +237,7 @@ export default function MapView(p: Props) {
             position={[n.lat!, n.lon!]}
             icon={nodeIcon(labels || sel ? shortName(n) : '', color, {
               selected: sel, router: isRouter(n), gateway: !!n.is_gateway, onPath: pathSet.has(n.num), labels: labels || sel,
+              unnamed: !hasName(n),
             })}
             zIndexOffset={sel ? 1000 : pathSet.has(n.num) ? 500 : isRouter(n) ? 100 : 0}
             eventHandlers={{
@@ -249,6 +250,7 @@ export default function MapView(p: Props) {
             <Tooltip direction="top" offset={[0, -10]} opacity={1}>
               <div className="text-xs">
                 <div className="font-semibold">{nodeName(n)}</div>
+                {!hasName(n) && <div className="text-slate-500 italic">name not received yet</div>}
                 <div className="text-slate-400">
                   {n.hops_away !== null ? `${n.hops_away} hop${n.hops_away === 1 ? '' : 's'} · ` : ''}{timeAgo(n.last_heard, p.now)}
                 </div>

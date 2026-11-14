@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { MeshNode } from '../types';
-import { nodeColor, nodeName, prettyEnum, timeAgo, type ColorBy } from '../lib/format';
+import { hasName, nodeColor, nodeName, prettyEnum, timeAgo, type ColorBy } from '../lib/format';
 import { HopsBadge, NodeTag } from './ui';
 
 type Sort = 'recent' | 'name' | 'hops' | 'packets';
@@ -82,6 +82,11 @@ export default function NodeList({ nodes, colorBy, now, onSelect }: Props) {
                   <span className="truncate text-sm text-slate-100">{nodeName(n)}</span>
                   {n.is_gateway ? <span title="MQTT gateway" className="text-[10px] text-pink-400">GW</span> : null}
                   {n.lat === null && <span title="No position" className="text-[10px] text-slate-600">no pos</span>}
+                  {!hasName(n) && (
+                    <span title="Name not received yet: nodes broadcast NODEINFO every ~3 hours" className="text-[10px] text-slate-500 italic">
+                      unnamed
+                    </span>
+                  )}
                 </div>
                 <div className="truncate text-[11px] text-slate-500">
                   {prettyEnum(n.hw_model_name)} · {prettyEnum(n.role_name)}

@@ -71,6 +71,12 @@ body,
   outline: 2px solid #f472b6;
   outline-offset: 1px;
 }
+/* Node whose NODEINFO hasn't arrived yet: label is the last 4 hex digits of its id. */
+.mm-unnamed.mm-pill {
+  border-style: dashed;
+  color: #94a3b8;
+  font-style: italic;
+}
 .mm-onpath {
   box-shadow: 0 0 0 3px #f0abfc, 0 0 12px #f0abfc;
 }

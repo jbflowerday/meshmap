@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { LinkSource, MeshNode, NodeDetail as Detail, Traceroute } from '../types';
 import { api } from '../lib/api';
 import {
-  duration, fmt, hexId, hopColor, nodeColor, nodeName, prettyEnum, snrColor, snrLabel, timeAgo, type ColorBy,
+  duration, fmt, hasName, hexId, hopColor, nodeColor, nodeName, prettyEnum, snrColor, snrLabel, timeAgo, type ColorBy,
 } from '../lib/format';
 import { Chip, Empty, HopsBadge, NodeTag, Section, Sparkline, Stat } from './ui';
 
@@ -110,6 +110,14 @@ export default function NodeDetail(p: Props) {
           <div className="mt-0.5 font-mono text-xs text-slate-500">{n.id} · {n.num}</div>
         </div>
       </div>
+
+      {!hasName(n) && (
+        <div className="mt-3 rounded-lg border border-dashed border-slate-700 bg-slate-900/60 px-3 py-2 text-xs leading-relaxed text-slate-400">
+          <span className="font-semibold text-slate-300">Name not received yet.</span> Nodes broadcast their name (NODEINFO) about
+          every 3 hours and shortly after they reboot. To get it now, open this node in the Meshtastic app on a device whose
+          mesh reaches a gateway and use <span className="text-slate-300">Exchange user info</span>.
+        </div>
+      )}
 
       <div className="mt-3 flex flex-wrap gap-1.5">
         {n.role_name && <Chip>{prettyEnum(n.role_name)}</Chip>}
