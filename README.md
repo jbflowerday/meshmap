@@ -58,6 +58,8 @@ On each node that has internet access (WiFi, Ethernet, or a phone with "client p
    - Turn on the **NeighborInfo** module for neighbour links.
    - Run traceroutes from the app to discover paths.
 
+**Why some nodes show a hex ID instead of a name:** names come only from NODEINFO packets. Nodes broadcast those every ~3 hours and shortly after a reboot. Until one arrives, the map labels the node with the last 4 hex digits of its ID, drawn dashed and italic. To get the name sooner, use **Exchange user info** on that node in the Meshtastic app, or turn on Map Reporting on your gateways.
+
 If your channel uses a custom PSK, add its base64 key to `MESH_CHANNEL_KEYS`, separated by commas. DMs encrypted with PKI can't be decrypted. Those packets still count toward hops and direct links.
 
 ### Feeding from another broker
