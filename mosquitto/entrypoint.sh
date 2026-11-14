@@ -14,6 +14,7 @@ ROOT="${MQTT_ROOT_TOPIC:-msh}"
 : "${MQTT_NODE_USER:?MQTT_NODE_USER must be set}"
 : "${MQTT_NODE_PASSWORD:?MQTT_NODE_PASSWORD must be set}"
 
+umask 077
 rm -f "$PASSWD"
 touch "$PASSWD"
 mosquitto_passwd -b "$PASSWD" "$MQTT_BACKEND_USER" "$MQTT_BACKEND_PASSWORD"
