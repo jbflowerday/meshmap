@@ -1,0 +1,56 @@
+name: CI / Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Backend
+        working-directory: backend
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+      - name: Frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+  # Deploys to Arcane: pull latest repo files (GitOps sync), build images on the
+  # server, then bring the project up. Configure in repo Settings → Secrets and variables:
+  #   secret   ARCANE_API_KEY
+  #   variables ARCANE_URL, ARCANE_ENV_ID, ARCANE_SYNC_ID, ARCANE_PROJECT_ID
+  deploy:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.ARCANE_PROJECT_ID != ''
+    runs-on: ubuntu-latest
+    env:
+      API: ${{ vars.ARCANE_URL }}/api/environments/${{ vars.ARCANE_ENV_ID }}
+      KEY: ${{ secrets.ARCANE_API_KEY }}
+    steps:
+      - name: Sync repository into Arcane
+        run: |
+          curl -fsS --max-time 300 -X POST -H "X-API-Key: $KEY" \
+            "$API/gitops-syncs/${{ vars.ARCANE_SYNC_ID }}/sync" -o /dev/null
+      - name: Build images
+        run: |
+          curl -fsS --max-time 1800 -X POST -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
+            -d '{"load":true}' "$API/projects/${{ vars.ARCANE_PROJECT_ID }}/build" -o /dev/null
+      - name: Deploy
+        run: |
+          curl -fsS --max-time 600 -X POST -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
+            -d '{"removeOrphans":true}' "$API/projects/${{ vars.ARCANE_PROJECT_ID }}/up" -o /dev/null
