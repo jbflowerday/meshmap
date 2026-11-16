@@ -5,6 +5,7 @@ import { config } from './config.ts';
 import * as db from './db.ts';
 import { counters, events } from './ingest.ts';
 import { nameRequestStatus } from './nameRequests.ts';
+import { tracerouteStatus } from './autoTraceroutes.ts';
 import { hwName, nodeNumFromId, PORT_NAMES, ROLE_NAMES } from './proto/meshtastic.ts';
 
 const linkMaxAge = () => config.linkMaxAgeHours * 3600;
@@ -45,6 +46,7 @@ const routes: [RegExp, Handler][] = [
     ...db.stats(linkMaxAge()),
     ingest: counters,
     nameRequests: { enabled: nameRequestStatus.enabled, nodeId: nameRequestStatus.nodeId, ...db.nameRequestStats() },
+    autoTraceroutes: { enabled: tracerouteStatus.enabled, ...db.tracerouteRequestStats() },
   }]],
   [/^\/api\/nodes$/, () => [200, db.listNodes().map(serializeNode)]],
   [/^\/api\/links$/, () => [200, db.listLinks(linkMaxAge())]],
@@ -60,6 +62,7 @@ const routes: [RegExp, Handler][] = [
     return [200, {
       node: serializeNode(node),
       name_request: nameRequestStatus.enabled ? db.getNameRequest(num) ?? null : null,
+      traceroute_request: tracerouteStatus.enabled ? db.getTracerouteRequest(num) ?? null : null,
       links: db.linksForNode(num, linkMaxAge()),
       traceroutes: db.listTraceroutes(20, num),
       positions: db.positionsForNode(num, since),

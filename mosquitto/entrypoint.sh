@@ -27,7 +27,7 @@ mosquitto_passwd -b "$PASSWD" "$MQTT_NODE_USER" "$MQTT_NODE_PASSWORD"
     echo
   fi
   echo "user $MQTT_BACKEND_USER"
-  # write is needed to downlink name requests (NAME_REQUESTS); otherwise only reads
+  # write is needed to downlink name requests and traceroutes; otherwise only reads
   echo "topic readwrite $ROOT/#"
   echo
   echo "user $MQTT_NODE_USER"

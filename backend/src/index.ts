@@ -4,6 +4,7 @@ import { prune } from './db.ts';
 import { handleMessage } from './ingest.ts';
 import { startServer } from './server.ts';
 import { startNameRequester } from './nameRequests.ts';
+import { startTracerouteScheduler } from './autoTraceroutes.ts';
 
 startServer();
 
@@ -25,7 +26,10 @@ client.on('reconnect', () => console.log('[mqtt] reconnecting...'));
 client.on('error', (err) => console.error('[mqtt] error:', err.message));
 client.on('message', (topic, payload) => handleMessage(topic, payload));
 
-startNameRequester((topic, payload) => client.publish(topic, payload, { qos: 0 }), () => client.connected);
+const publish = (topic: string, payload: Buffer) => { client.publish(topic, payload, { qos: 0 }); };
+const connected = () => client.connected;
+startNameRequester(publish, connected);
+startTracerouteScheduler(publish, connected);
 
 prune();
 setInterval(prune, 3600_000).unref();

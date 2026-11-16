@@ -6,55 +6,28 @@
 // Airtime is shared, so this is opt-in and strictly limited: at most one request
 // every 30 s, NAME_REQUEST_MAX_PER_HOUR per hour, and each node at most once per
 // NAME_REQUEST_RETRY_HOURS.
-import { randomInt } from 'node:crypto';
 import { config } from './config.ts';
-import { encrypt } from './crypto.ts';
 import * as db from './db.ts';
-import { gatewayRoutes } from './ingest.ts';
-import {
-  encodeData, encodeMeshPacket, encodeServiceEnvelope, encodeUser, nodeIdFromNum, nodeNumFromId, PortNum,
-} from './proto/meshtastic.ts';
+import { buildDownlink, downlinkGate, requesterNodeNum, type Publish } from './downlink.ts';
+import { encodeData, encodeUser, nodeIdFromNum, PortNum } from './proto/meshtastic.ts';
+
+export { requesterNodeNum, type Publish };
 
 const TICK_MS = 30_000;
 const PRIVATE_HW = 255;
 const ROLE_CLIENT_MUTE = 1;
 
-export type Publish = (topic: string, payload: Buffer) => void;
-
 export const nameRequestStatus = { enabled: false, nodeId: '', sentThisRun: 0, lastSentAt: 0, lastError: '' };
-
-/** MeshMap's own node number for requests: configured, or random and persisted. */
-export function requesterNodeNum(): number {
-  const cfg = config.nameRequests.nodeId ? nodeNumFromId(config.nameRequests.nodeId) : null;
-  if (cfg !== null) return cfg;
-  const saved = db.getSetting('requester_node_num');
-  if (saved) return Number(saved) >>> 0;
-  const num = randomInt(0x10000000, 0xeffffff0) >>> 0;
-  db.setSetting('requester_node_num', String(num));
-  return num;
-}
 
 /** Builds one NODEINFO request. Returns the MQTT topic and envelope bytes, or null if no route is known. */
 export function buildNameRequest(target: number, gateway: number, hopsAway: number | null, from: number) {
-  const route = gatewayRoutes.get(gateway);
-  if (!route) return null;
   const nr = config.nameRequests;
-  const id = randomInt(1, 0xffffffff) >>> 0;
   const user = encodeUser({
     id: nodeIdFromNum(from), longName: nr.longName, shortName: nr.shortName, hwModel: PRIVATE_HW, role: ROLE_CLIENT_MUTE,
   });
   const data = encodeData({ portnum: PortNum.NODEINFO_APP, payload: user, wantResponse: true });
   // Enough hops to reach the node from the gateway, and never above the protocol max of 7.
-  const hopLimit = Math.min(7, Math.max(nr.hopLimit, (hopsAway ?? 0) + 1));
-  const packet = encodeMeshPacket({
-    from, to: target, id, channel: route.channelHash, hopLimit, hopStart: hopLimit,
-    encrypted: encrypt(data, route.key, id, from),
-  });
-  const fromId = nodeIdFromNum(from);
-  return {
-    topic: `${route.root}/2/e/${route.channelId}/${fromId}`,
-    payload: Buffer.from(encodeServiceEnvelope(packet, route.channelId, fromId)),
-  };
+  return buildDownlink(target, gateway, data, Math.max(nr.hopLimit, (hopsAway ?? 0) + 1), from);
 }
 
 /** One scheduling pass. Exported for tests. Sends at most one request. */
@@ -63,6 +36,7 @@ export function nameRequestTick(publish: Publish, connected: () => boolean, from
   const nr = config.nameRequests;
   if (!nr.enabled || !connected()) return null;
   const now = db.nowSec();
+  if (!downlinkGate.open(now)) return null;
   if (db.nameRequestStats().sentLastHour >= nr.maxPerHour) return null;
 
   const candidates = db.nameRequestCandidates({
@@ -80,6 +54,7 @@ export function nameRequestTick(publish: Publish, connected: () => boolean, from
       nameRequestStatus.lastError = (err as Error).message;
       return null;
     }
+    downlinkGate.mark(now);
     db.recordNameRequest(c.num, c.last_gateway);
     nameRequestStatus.sentThisRun++;
     nameRequestStatus.lastSentAt = now;

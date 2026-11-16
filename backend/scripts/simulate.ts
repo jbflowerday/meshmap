@@ -113,11 +113,13 @@ await new Promise<void>((resolve, reject) => {
 console.log(`[sim] connected to ${URL_}; ${N} nodes, gateways: ${nodes.filter((n) => n.gateway).map((n) => n.short).join(', ')}`);
 
 let sent = 0;
-function transmit(from: SimNode, portnum: number, payload: Uint8Array, opts: { to?: number; requestId?: number } = {}) {
+function transmit(
+  from: SimNode, portnum: number, payload: Uint8Array, opts: { to?: number; requestId?: number; onlyGateway?: SimNode } = {},
+) {
   const id = randomInt(1, 0xffffffff) >>> 0;
   const data = encodeData({ portnum, payload, requestId: opts.requestId });
   const enc = encrypt(data, DEFAULT_KEY, id, from.num);
-  for (const gw of nodes.filter((n) => n.gateway)) {
+  for (const gw of nodes.filter((n) => n.gateway && (!opts.onlyGateway || n === opts.onlyGateway))) {
     const path = shortestPath(from.num, gw.num);
     if (!path) continue;
     const hops = path.length - 2; // relays between sender and gateway
@@ -142,7 +144,7 @@ const sendNodeInfo = (n: SimNode, to?: number) => {
     encodeUser({ id: nodeIdFromNum(n.num), longName: n.name, shortName: n.short, hwModel: n.hw, role: n.role }), { to });
 };
 
-// Gateways with downlink enabled: deliver NODEINFO requests to the addressed node, which replies.
+// Gateways with downlink enabled: deliver NODEINFO and TRACEROUTE requests to the addressed node, which replies.
 const gatewayIds = new Set(nodes.filter((n) => n.gateway).map((n) => nodeIdFromNum(n.num)));
 client.subscribe(`${ROOT}/2/e/LongFast/+`);
 client.on('message', (topic, payload) => {
@@ -153,11 +155,36 @@ client.on('message', (topic, payload) => {
     if (!p?.encrypted) return;
     const d = decodeData(decrypt(p.encrypted, DEFAULT_KEY, p.id, p.from));
     const target = nodes.find((n) => n.num === p.to);
-    if (d.portnum !== PortNum.NODEINFO_APP || !d.wantResponse || !target) return;
+    if (!d.wantResponse || !target) return;
+    if (d.portnum === PortNum.TRACEROUTE_APP) {
+      console.log(`[sim] downlink: ${nodeIdFromNum(p.from)} traced ${target.short}; replying`);
+      setTimeout(() => answerTraceroute(target, p.from, p.id), 1500);
+      return;
+    }
+    if (d.portnum !== PortNum.NODEINFO_APP) return;
     console.log(`[sim] downlink: ${nodeIdFromNum(p.from)} asked ${target.short} for its name; replying`);
     setTimeout(() => sendNodeInfo(target, p.from), 1500);
   } catch { /* not for us */ }
 });
+// A downlinked traceroute enters the mesh at the gateway nearest the target (the injecting
+// gateway doesn't record itself, like firmware). The reply goes back to the nearest gateway,
+// which uplinks it. Relays record themselves and the SNR they heard.
+function answerTraceroute(target: SimNode, requester: number, requestId: number) {
+  const gws = nodes.filter((n) => n.gateway && n !== target);
+  const paths = gws.map((g) => shortestPath(g.num, target.num)).filter((x): x is number[] => !!x);
+  if (!paths.length) return;
+  const fwd = paths.sort((a, b) => a.length - b.length)[0]; // gateway ... target
+  const gw = nodes.find((n) => n.num === fwd[0])!;
+  const snr = (a: number, b: number) => Math.round((adj.get(a)!.get(b) ?? 0) * 4);
+  const route = fwd.slice(1, -1);
+  const snrTowards = fwd.slice(1).map((n, i) => snr(fwd[i], n));
+  const back = [...fwd].reverse(); // target ... gateway
+  const routeBack = back.slice(1, -1);
+  const snrBack = routeBack.map((n, i) => snr(back[i], n));
+  transmit(target, PortNum.TRACEROUTE_APP, encodeRouteDiscovery({ route, snrTowards, routeBack, snrBack }),
+    { to: requester, requestId, onlyGateway: gw });
+}
+
 const sendPosition = (n: SimNode) => {
   if (n.role === 5) { n.lat += rand(-0.002, 0.002); n.lon += rand(-0.002, 0.002); } // trackers wander
   transmit(n, PortNum.POSITION_APP, encodePosition({

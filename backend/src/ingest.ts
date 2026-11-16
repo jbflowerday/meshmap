@@ -20,6 +20,8 @@ export const counters = { messages: 0, packets: 0, decrypted: 0, undecryptable: 
  * and the channel key that decrypted its traffic. Used for downlink requests.
  */
 export interface GatewayRoute { root: string; channelId: string; channelHash: number; key: Buffer; t: number }
+/** MeshMap's own (virtual) node numbers used for downlinked requests. Not on RF. */
+export const selfNodes = new Set<number>();
 export const gatewayRoutes = new Map<number, GatewayRoute>();
 
 // --------------------------------------------------------------- dedupe
@@ -221,6 +223,7 @@ function linkPath(path: number[], snrs: number[]) {
     const a = path[i];
     const b = path[i + 1];
     if (a === BROADCAST || b === BROADCAST || !a || !b) continue;
+    if (selfNodes.has(a) || selfNodes.has(b)) continue; // MeshMap's virtual node isn't on RF
     db.upsertLink(a, b, 'traceroute', snrOf(snrs[i]));
     events.emit('link', db.getLink(a, b, 'traceroute'));
   }
@@ -232,16 +235,44 @@ function handleTraceroute(p: MeshPacket, d: Data, gateway: number | null) {
   const rd = decodeRouteDiscovery(d.payload);
   const requester = p.to;
   const target = p.from;
-  const forward = [requester, ...rd.route, target];
+  let forward = [requester, ...rd.route, target];
+  let snrTowards = rd.snrTowards;
   const hasBack = rd.routeBack.length > 0 || rd.snrBack.length > 0;
-  const back = hasBack ? [target, ...rd.routeBack, requester] : null;
+  let back = hasBack ? [target, ...rd.routeBack, requester] : null;
+  let snrBack = rd.snrBack;
+
+  // Our own traceroute (scheduled, sent via MQTT downlink). MeshMap's node isn't on RF:
+  // the request entered the mesh at the gateway we sent it through, and the reply left
+  // it at the gateway that uplinked it. Put those gateways in the paths if the firmware didn't.
+  if (selfNodes.has(requester)) {
+    const req = db.getTracerouteRequest(target);
+    const sentVia = req?.packet_id === d.requestId ? req.gateway : null;
+    if (sentVia !== null && sentVia !== target && rd.route[0] !== sentVia) {
+      // Every gateway with Downlink on that shares this topic and channel transmits a
+      // downlinked packet, so the entry point is only certain if no other gateway does.
+      const via = gatewayRoutes.get(sentVia);
+      const shared = via ? [...gatewayRoutes].filter(([, r]) => r.root === via.root && r.channelId === via.channelId).length : 1;
+      forward = [requester, shared > 1 ? BROADCAST : sentVia, ...rd.route, target];
+      snrTowards = [SNR_UNKNOWN, ...rd.snrTowards];
+    }
+    const lastRelay = rd.routeBack.at(-1) ?? target;
+    if (gateway !== null && gateway !== target && lastRelay !== gateway) {
+      back = [target, ...rd.routeBack, gateway, requester];
+      const known = rd.routeBack.map((_, i) => rd.snrBack[i] ?? SNR_UNKNOWN);
+      snrBack = [...known, p.rxSnr ? Math.round(p.rxSnr * 4) : SNR_UNKNOWN, SNR_UNKNOWN];
+    } else if (!back) {
+      back = [target, ...rd.routeBack, requester];
+    }
+    if (req?.packet_id === d.requestId) db.markTracerouteAnswered(target);
+  }
+
   const inserted = db.addTraceroute({
-    packetId: d.requestId, from: requester, to: target, route: forward, snrTowards: rd.snrTowards.map((s) => s / 4),
-    routeBack: back, snrBack: hasBack ? rd.snrBack.map((s) => s / 4) : null, gateway,
+    packetId: d.requestId, from: requester, to: target, route: forward, snrTowards: snrTowards.map(snrOf),
+    routeBack: back, snrBack: back ? snrBack.map(snrOf) : null, gateway,
   });
   if (!inserted) return;
-  linkPath(forward, rd.snrTowards);
-  if (back) linkPath(back, rd.snrBack);
+  linkPath(forward, snrTowards);
+  if (back) linkPath(back, snrBack);
   events.emit('traceroute', { from: requester, to: target, route: forward, route_back: back, time: db.nowSec() });
 }
 

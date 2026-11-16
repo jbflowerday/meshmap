@@ -53,4 +53,22 @@ export const config = {
     /** Optional fixed node id for MeshMap's requests, e.g. "!4d4d0001". Random and persisted if unset. */
     nodeId: process.env.NAME_REQUEST_NODE_ID || undefined,
   },
+  /**
+   * Send traceroutes to known nodes on a schedule via MQTT downlink, to discover links.
+   * Needs Downlink enabled on the gateway's channel. Off by default.
+   */
+  traceroutes: {
+    enabled: /^(1|true|yes|on)$/i.test(env('AUTO_TRACEROUTES', 'false')),
+    maxPerHour: num('TRACEROUTE_MAX_PER_HOUR', 4),
+    /** Minimum gap between two scheduled traceroutes. */
+    minIntervalSeconds: num('TRACEROUTE_MIN_INTERVAL_SECONDS', 300),
+    /** Same node is traced again only after this long. */
+    retryHours: num('TRACEROUTE_RETRY_HOURS', 24),
+    /** Only trace nodes heard this recently. */
+    heardWithinMinutes: num('TRACEROUTE_HEARD_WITHIN_MINUTES', 60),
+    /** Skip nodes known to be further than this many hops from the nearest gateway. */
+    maxHopsAway: num('TRACEROUTE_MAX_HOPS_AWAY', 3),
+    /** Minimum hop limit for the request (raised to reach the node, capped at 7). */
+    hopLimit: num('TRACEROUTE_HOP_LIMIT', 3),
+  },
 };

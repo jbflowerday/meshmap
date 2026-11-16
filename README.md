@@ -56,9 +56,11 @@ On each node that has internet access (WiFi, Ethernet, or a phone with "client p
 2. **Channels → primary channel → Uplink enabled:** on
 3. Optional extra data:
    - Turn on the **NeighborInfo** module for neighbour links.
-   - Run traceroutes from the app to discover paths.
+   - Run traceroutes from the app to discover paths, or let MeshMap schedule them (below).
 
 **Automatic name requests (optional):** set `NAME_REQUESTS=true` and turn on **Downlink** for the gateway's primary channel. MeshMap then asks unnamed nodes for their name, the same way *Exchange user info* in the app does. Requests go out through the gateway that last heard the node, from MeshMap's own node ID (`nodeId` in `/api/stats`). They're rate limited to one every 30 s, `NAME_REQUEST_MAX_PER_HOUR` per hour, and once per node every `NAME_REQUEST_RETRY_HOURS`. The gateway must uplink with MQTT encryption on, because that's how MeshMap learns the channel's key and hash.
+
+**Scheduled traceroutes (optional):** set `AUTO_TRACEROUTES=true` and turn on **Downlink** for the gateway's primary channel. MeshMap then sends a traceroute to one known node at a time, through the gateway that last heard it, and the reply adds the full path in both directions to the map. It prefers nodes it hasn't traced yet and nodes more than 0 hops away. Every traceroute floods the mesh, so the limits are deliberately low and all set in `.env`: at most `TRACEROUTE_MAX_PER_HOUR` per hour, `TRACEROUTE_MIN_INTERVAL_SECONDS` apart, each node once every `TRACEROUTE_RETRY_HOURS`, only nodes heard in the last `TRACEROUTE_HEARD_WITHIN_MINUTES` and at most `TRACEROUTE_MAX_HOPS_AWAY` hops out. MeshMap also never sends two packets of any kind within 30 s. It uses the same node ID as name requests (`NAME_REQUEST_NODE_ID`). That node isn't on RF, so its legs are left off the map; the gateways it sent and received through are added to the path instead. Progress is in `/api/stats` under `autoTraceroutes`.
 
 **Why some nodes show a hex ID instead of a name:** names come only from NODEINFO packets. Nodes broadcast those every ~3 hours and shortly after a reboot. Until one arrives, the map labels the node with the last 4 hex digits of its ID, drawn dashed and italic. To get the name sooner, use **Exchange user info** on that node in the Meshtastic app, or turn on Map Reporting on your gateways.
 
@@ -86,6 +88,8 @@ All settings are in [.env.example](.env.example). The main ones:
 | `RETENTION_DAYS` | `7` | How long position, telemetry, packet and traceroute history is kept |
 | `NODE_MAX_AGE_DAYS` | `30` | Nodes not heard for this long are removed |
 | `LINK_MAX_AGE_HOURS` | `72` | Links not refreshed for this long are removed |
+| `AUTO_TRACEROUTES` | `false` | Send rate-limited traceroutes on a schedule (see above) |
+| `TRACEROUTE_MAX_PER_HOUR` | `4` | Hourly cap on scheduled traceroutes |
 | `MIN_PRECISION_BITS` | `0` | Hides positions coarser than this |
 | `MAP_CENTER` / `MAP_ZOOM` | | Initial view before nodes load |
 | `TILE_URL` | | Your own dark tile server. The default is OpenStreetMap with a dark CSS filter. |
@@ -125,4 +129,4 @@ Pointing the simulator at the Docker broker also works:
 MQTT_USERNAME=meshdev MQTT_PASSWORD=... npm run simulate -- --url mqtt://localhost:1883
 ```
 
-Simulator options are `--nodes N`, `--interval ms`, `--stack N` (puts N extra nodes at the same spot, to test overlapping markers) and `--quiet N` (N nodes that never announce their name but answer name requests sent over downlink). Set `SIM_LAT` and `SIM_LON` to move the fake mesh.
+Simulator gateways answer downlinked traceroutes, so `AUTO_TRACEROUTES=true TRACEROUTE_MIN_INTERVAL_SECONDS=0` can be tested locally. Simulator options are `--nodes N`, `--interval ms`, `--stack N` (puts N extra nodes at the same spot, to test overlapping markers) and `--quiet N` (N nodes that never announce their name but answer name requests sent over downlink). Set `SIM_LAT` and `SIM_LON` to move the fake mesh.

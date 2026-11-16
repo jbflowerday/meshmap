@@ -231,8 +231,8 @@ export function telemetryForNode(num: number, sinceSec: number) {
 }
 
 export function addTraceroute(tr: {
-  packetId: number; from: number; to: number; route: number[]; snrTowards: number[];
-  routeBack: number[] | null; snrBack: number[] | null; gateway: number | null;
+  packetId: number; from: number; to: number; route: number[]; snrTowards: (number | null)[];
+  routeBack: number[] | null; snrBack: (number | null)[] | null; gateway: number | null;
 }): boolean {
   const res = prep(`INSERT OR IGNORE INTO traceroutes (packet_id, from_num, to_num, route, snr_towards, route_back, snr_back, gateway, time)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
@@ -303,6 +303,7 @@ export function prune() {
   db.prepare('DELETE FROM links WHERE last_seen < ?').run(t - config.linkMaxAgeHours * 3600);
   db.prepare('DELETE FROM nodes WHERE last_heard < ?').run(t - config.nodeMaxAgeDays * 86400);
   db.prepare('DELETE FROM name_requests WHERE num NOT IN (SELECT num FROM nodes)').run();
+  db.prepare('DELETE FROM traceroute_requests WHERE num NOT IN (SELECT num FROM nodes)').run();
 }
 
 /** Marks a node as alive without counting a packet (e.g. a gateway uplinking others' traffic). */
@@ -370,5 +371,62 @@ export function nameRequestStats() {
     sent24h: one('SELECT COUNT(*) c FROM name_requests WHERE last_sent >= ?', nowSec() - 86400),
     answered: one('SELECT COUNT(*) c FROM name_requests WHERE answered_at IS NOT NULL'),
     pending: one('SELECT COUNT(*) c FROM name_requests WHERE answered_at IS NULL'),
+  };
+}
+
+// ---------------------------------------------------------- scheduled traceroutes
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS traceroute_requests (
+  num         INTEGER PRIMARY KEY,
+  last_sent   INTEGER NOT NULL,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  gateway     INTEGER,
+  packet_id   INTEGER,
+  answered_at INTEGER
+);
+`);
+
+/**
+ * Nodes worth tracing: heard recently through a known gateway and not traced lately.
+ * Never-traced nodes first, then nodes more than 0 hops out (direct ones teach little),
+ * then the longest since their last trace.
+ */
+export function tracerouteCandidates(opts: { heardSince: number; retryBefore: number; maxHopsAway: number; exclude: number }) {
+  return prep(`
+    SELECT n.num, n.last_gateway, n.hops_away FROM nodes n
+    LEFT JOIN traceroute_requests r ON r.num = n.num
+    WHERE n.last_heard >= ? AND n.last_gateway IS NOT NULL
+      AND n.num != ? AND n.num != n.last_gateway
+      AND (n.hops_away IS NULL OR n.hops_away <= ?)
+      AND (r.last_sent IS NULL OR r.last_sent < ?)
+    ORDER BY (r.last_sent IS NOT NULL), (n.hops_away = 0), r.last_sent, n.last_heard DESC LIMIT 50`)
+    .all(opts.heardSince, opts.exclude, opts.maxHopsAway, opts.retryBefore) as { num: number; last_gateway: number; hops_away: number | null }[];
+}
+
+export function recordTracerouteRequest(num: number, gateway: number, packetId: number) {
+  prep(`INSERT INTO traceroute_requests (num, last_sent, attempts, gateway, packet_id) VALUES (?, ?, 1, ?, ?)
+        ON CONFLICT(num) DO UPDATE SET last_sent = excluded.last_sent, attempts = traceroute_requests.attempts + 1,
+          gateway = excluded.gateway, packet_id = excluded.packet_id, answered_at = NULL`).run(num, nowSec(), gateway, packetId);
+}
+
+export function getTracerouteRequest(num: number) {
+  return prep('SELECT last_sent, attempts, gateway, packet_id, answered_at FROM traceroute_requests WHERE num = ?').get(num) as
+    | { last_sent: number; attempts: number; gateway: number | null; packet_id: number | null; answered_at: number | null }
+    | undefined;
+}
+
+export function markTracerouteAnswered(num: number) {
+  prep('UPDATE traceroute_requests SET answered_at = ? WHERE num = ? AND answered_at IS NULL').run(nowSec(), num);
+}
+
+export function tracerouteRequestStats() {
+  const one = (sql: string, ...a: number[]) => Number((prep(sql).get(...a) as { c: number }).c);
+  return {
+    sentLastHour: one('SELECT COUNT(*) c FROM traceroute_requests WHERE last_sent >= ?', nowSec() - 3600),
+    sent24h: one('SELECT COUNT(*) c FROM traceroute_requests WHERE last_sent >= ?', nowSec() - 86400),
+    answered: one('SELECT COUNT(*) c FROM traceroute_requests WHERE answered_at IS NOT NULL'),
+    pending: one('SELECT COUNT(*) c FROM traceroute_requests WHERE answered_at IS NULL'),
+    lastSentAt: one('SELECT COALESCE(MAX(last_sent), 0) c FROM traceroute_requests'),
   };
 }

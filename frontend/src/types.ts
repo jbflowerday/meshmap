@@ -60,9 +60,9 @@ export interface Traceroute {
   from?: number;
   to?: number;
   route: number[];
-  snr_towards?: number[];
+  snr_towards?: (number | null)[];
   route_back: number[] | null;
-  snr_back?: number[] | null;
+  snr_back?: (number | null)[] | null;
   time: number;
 }
 
@@ -96,6 +96,8 @@ export interface NodeDetail {
   packets: PacketRow[];
   /** Present when automatic name requests are enabled and this node has been asked. */
   name_request?: { last_sent: number; attempts: number; gateway: number | null; answered_at: number | null } | null;
+  /** Present when scheduled traceroutes are enabled and this node has been traced. */
+  traceroute_request?: { last_sent: number; attempts: number; gateway: number | null; answered_at: number | null } | null;
 }
 
 export interface Stats {

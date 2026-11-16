@@ -232,6 +232,11 @@ export default function NodeDetail(p: Props) {
       </Section>
 
       <Section title="Traceroutes">
+        {detail?.traceroute_request && !detail.traceroute_request.answered_at && (
+          <div className="mb-2 text-xs text-emerald-300/90">
+            MeshMap sent a traceroute to this node {timeAgo(detail.traceroute_request.last_sent, p.now)}; waiting for the reply.
+          </div>
+        )}
         {!detail ? (
           <Empty>Loading…</Empty>
         ) : detail.traceroutes.length === 0 ? (
@@ -290,7 +295,7 @@ export function TracerouteItem({ t, nodesByNum, now, onShow, active, highlight }
   t: Traceroute; nodesByNum: Map<number, MeshNode>; now: number; onShow: (p: number[] | null) => void; active: boolean; highlight?: number;
 }) {
   const hops = t.route.length - 2;
-  const renderPath = (path: number[], snrs: number[] | null | undefined) => (
+  const renderPath = (path: number[], snrs: (number | null)[] | null | undefined) => (
     <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
       {path.map((num, i) => {
         const nd = nodesByNum.get(num);
@@ -299,7 +304,7 @@ export function TracerouteItem({ t, nodesByNum, now, onShow, active, highlight }
           <span key={i} className="flex items-center gap-1">
             {i > 0 && (
               <span className="font-mono text-[9px]" style={{ color: snrColor(snrs?.[i - 1]) }}>
-                {snrs?.[i - 1] !== undefined ? `${snrs[i - 1]! > 0 ? '+' : ''}${snrs[i - 1]!.toFixed(0)}` : ''}→
+                {snrs?.[i - 1] != null ? `${snrs[i - 1]! > 0 ? '+' : ''}${snrs[i - 1]!.toFixed(0)}` : ''}→
               </span>
             )}
             <span className={`rounded px-1 font-mono text-[11px] ${num === highlight ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-200'}`}>
