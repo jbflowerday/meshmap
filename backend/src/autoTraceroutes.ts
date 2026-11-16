@@ -39,6 +39,7 @@ export function tracerouteTick(publish: Publish, connected: () => boolean, from:
   const candidates = db.tracerouteCandidates({
     heardSince: now - tr.heardWithinMinutes * 60,
     retryBefore: now - tr.retryHours * 3600,
+    minHopsAway: tr.minHopsAway,
     maxHopsAway: tr.maxHopsAway,
     exclude: from,
   });

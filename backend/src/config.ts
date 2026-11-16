@@ -66,6 +66,8 @@ export const config = {
     retryHours: num('TRACEROUTE_RETRY_HOURS', 24),
     /** Only trace nodes heard this recently. */
     heardWithinMinutes: num('TRACEROUTE_HEARD_WITHIN_MINUTES', 60),
+    /** Skip nodes closer than this many hops to a gateway (1 = skip nodes a gateway hears directly). */
+    minHopsAway: num('TRACEROUTE_MIN_HOPS_AWAY', 1),
     /** Skip nodes known to be further than this many hops from the nearest gateway. */
     maxHopsAway: num('TRACEROUTE_MAX_HOPS_AWAY', 3),
     /** Minimum hop limit for the request (raised to reach the node, capped at 7). */

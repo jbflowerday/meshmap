@@ -28,9 +28,12 @@ function encPacket(from: number, to: number, id: number, data: Uint8Array, extra
 
 let sentId = 0;
 
-test('traces a known node through the gateway that heard it', () => {
+test('traces a known node through the gateway that heard it, skipping direct ones', () => {
   const pos = P.encodeData({ portnum: P.PortNum.POSITION_APP, payload: P.encodePosition({ latitudeI: -204e6, longitudeI: 1485e6 }) });
   uplink(encPacket(NODE, P.BROADCAST, 1234, pos, { hopLimit: 1 }));
+  // Heard directly by the gateway (0 hops) and more recently: its link is known, so it's skipped.
+  uplink(encPacket(0x0d1ec700, P.BROADCAST, 1235, pos, { hopLimit: 3 }));
+  assert.equal(db.getNode(0x0d1ec700)?.hops_away, 0);
 
   const from = requesterNodeNum();
   assert.equal(from, SELF);

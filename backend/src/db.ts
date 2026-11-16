@@ -389,19 +389,21 @@ CREATE TABLE IF NOT EXISTS traceroute_requests (
 
 /**
  * Nodes worth tracing: heard recently through a known gateway and not traced lately.
- * Never-traced nodes first, then nodes more than 0 hops out (direct ones teach little),
- * then the longest since their last trace.
+ * Nodes a gateway hears directly (fewer than minHopsAway hops) are skipped: their link is already known.
+ * Never-traced nodes first, then the longest since their last trace.
  */
-export function tracerouteCandidates(opts: { heardSince: number; retryBefore: number; maxHopsAway: number; exclude: number }) {
+export function tracerouteCandidates(opts: {
+  heardSince: number; retryBefore: number; minHopsAway: number; maxHopsAway: number; exclude: number;
+}) {
   return prep(`
     SELECT n.num, n.last_gateway, n.hops_away FROM nodes n
     LEFT JOIN traceroute_requests r ON r.num = n.num
     WHERE n.last_heard >= ? AND n.last_gateway IS NOT NULL
       AND n.num != ? AND n.num != n.last_gateway
-      AND (n.hops_away IS NULL OR n.hops_away <= ?)
+      AND (n.hops_away IS NULL OR (n.hops_away >= ? AND n.hops_away <= ?))
       AND (r.last_sent IS NULL OR r.last_sent < ?)
-    ORDER BY (r.last_sent IS NOT NULL), (n.hops_away = 0), r.last_sent, n.last_heard DESC LIMIT 50`)
-    .all(opts.heardSince, opts.exclude, opts.maxHopsAway, opts.retryBefore) as { num: number; last_gateway: number; hops_away: number | null }[];
+    ORDER BY (r.last_sent IS NOT NULL), r.last_sent, n.last_heard DESC LIMIT 50`)
+    .all(opts.heardSince, opts.exclude, opts.minHopsAway, opts.maxHopsAway, opts.retryBefore) as { num: number; last_gateway: number; hops_away: number | null }[];
 }
 
 export function recordTracerouteRequest(num: number, gateway: number, packetId: number) {
