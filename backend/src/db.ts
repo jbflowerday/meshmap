@@ -430,3 +430,12 @@ export function tracerouteRequestStats() {
     lastSentAt: one('SELECT COALESCE(MAX(last_sent), 0) c FROM traceroute_requests'),
   };
 }
+
+/** Removes a node and its history (used for MeshMap's own virtual node). */
+export function forgetNode(num: number) {
+  for (const t of ['nodes', 'positions', 'telemetry', 'name_requests', 'traceroute_requests']) {
+    db.prepare(`DELETE FROM ${t} WHERE num = ?`).run(num);
+  }
+  db.prepare('DELETE FROM packets WHERE from_num = ?').run(num);
+  db.prepare('DELETE FROM links WHERE from_num = ? OR to_num = ?').run(num, num);
+}

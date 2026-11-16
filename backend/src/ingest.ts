@@ -42,7 +42,10 @@ export function handleMessage(topic: string, payload: Buffer) {
     if (topic.includes('/json/')) return handleJson(payload);
     const env = decodeServiceEnvelope(payload);
     if (!env.packet) return;
-    handlePacket(env.packet, env.channelId, nodeNumFromId(env.gatewayId), topic);
+    // MeshMap's own downlinked requests come back to it on msh/#; they aren't mesh traffic.
+    const gw = nodeNumFromId(env.gatewayId);
+    if (selfNodes.has(env.packet.from) || (gw !== null && selfNodes.has(gw))) return;
+    handlePacket(env.packet, env.channelId, gw, topic);
   } catch (err) {
     counters.errors++;
     if (process.env.DEBUG) console.warn(`[ingest] failed on ${topic}:`, (err as Error).message);

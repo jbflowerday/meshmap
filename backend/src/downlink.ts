@@ -29,7 +29,10 @@ export function requesterNodeNum(): number {
     num = saved ? Number(saved) >>> 0 : randomInt(0x10000000, 0xeffffff0) >>> 0;
     if (!saved) db.setSetting('requester_node_num', String(num));
   }
-  selfNodes.add(num);
+  if (!selfNodes.has(num)) {
+    selfNodes.add(num);
+    db.forgetNode(num); // left over from when its own requests were ingested
+  }
   return num;
 }
 
