@@ -232,6 +232,23 @@ function linkPath(path: number[], snrs: number[]) {
   }
 }
 
+/**
+ * Drops MeshMap's node from one end of a path, with the SNR of the hop to or from it.
+ * A path left with a single node gets an unknown hop in its place.
+ */
+export function withoutSelf<T>(path: number[], snrs: T[], end: 'start' | 'end'): { path: number[]; snrs: T[] } {
+  if (end === 'start' && selfNodes.has(path[0])) {
+    path = path.slice(1);
+    snrs = snrs.slice(1);
+    if (path.length < 2) path = [BROADCAST, ...path];
+  } else if (end === 'end' && selfNodes.has(path[path.length - 1])) {
+    path = path.slice(0, -1);
+    snrs = snrs.slice(0, path.length - 1);
+    if (path.length < 2) path = [...path, BROADCAST];
+  }
+  return { path, snrs };
+}
+
 function handleTraceroute(p: MeshPacket, d: Data, gateway: number | null) {
   // Only replies carry a complete route. Reply: from = target, to = requester.
   if (!d.requestId || p.to === BROADCAST) return;
@@ -267,6 +284,9 @@ function handleTraceroute(p: MeshPacket, d: Data, gateway: number | null) {
       back = [target, ...rd.routeBack, requester];
     }
     if (req?.packet_id === d.requestId) db.markTracerouteAnswered(target);
+    // Paths run gateway → … → target and back; MeshMap itself isn't a hop.
+    ({ path: forward, snrs: snrTowards } = withoutSelf(forward, snrTowards, 'start'));
+    ({ path: back, snrs: snrBack } = withoutSelf(back!, snrBack, 'end'));
   }
 
   const inserted = db.addTraceroute({

@@ -439,3 +439,21 @@ export function forgetNode(num: number) {
   db.prepare('DELETE FROM packets WHERE from_num = ?').run(num);
   db.prepare('DELETE FROM links WHERE from_num = ? OR to_num = ?').run(num, num);
 }
+
+/** Rewrites stored traceroutes so `num` (MeshMap's own node) isn't a hop. Returns how many changed. */
+export function stripNodeFromTraceroutes(num: number, strip: <T>(path: number[], snrs: T[], end: 'start' | 'end') => { path: number[]; snrs: T[] }) {
+  const rows = prep('SELECT id, route, snr_towards, route_back, snr_back FROM traceroutes WHERE route LIKE ? OR route_back LIKE ?')
+    .all(`%${num}%`, `%${num}%`) as { id: number; route: string; snr_towards: string | null; route_back: string | null; snr_back: string | null }[];
+  let changed = 0;
+  for (const r of rows) {
+    const route = JSON.parse(r.route) as number[];
+    const back = r.route_back ? (JSON.parse(r.route_back) as number[]) : null;
+    if (route[0] !== num && back?.at(-1) !== num) continue;
+    const f = strip(route, r.snr_towards ? (JSON.parse(r.snr_towards) as unknown[]) : [], 'start');
+    const b = back ? strip(back, r.snr_back ? (JSON.parse(r.snr_back) as unknown[]) : [], 'end') : null;
+    prep('UPDATE traceroutes SET route = ?, snr_towards = ?, route_back = ?, snr_back = ? WHERE id = ?').run(
+      JSON.stringify(f.path), JSON.stringify(f.snrs), b ? JSON.stringify(b.path) : null, b ? JSON.stringify(b.snrs) : null, r.id);
+    changed++;
+  }
+  return changed;
+}

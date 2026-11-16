@@ -6,7 +6,8 @@ process.env.AUTO_TRACEROUTES = 'true';
 process.env.NAME_REQUEST_NODE_ID = '!4d4d0001';
 
 const { DEFAULT_KEY, decrypt, encrypt } = await import('../src/crypto.ts');
-const { handleMessage } = await import('../src/ingest.ts');
+const ingest = await import('../src/ingest.ts');
+const { handleMessage } = ingest;
 const { tracerouteTick } = await import('../src/autoTraceroutes.ts');
 const { downlinkGate, requesterNodeNum } = await import('../src/downlink.ts');
 const db = await import('../src/db.ts');
@@ -73,6 +74,24 @@ test('the reply adds links through the gateways, never to MeshMap itself', () =>
   assert.ok(db.getTracerouteRequest(NODE)?.answered_at);
 
   const [t] = db.listTraceroutes(1) as { route: number[]; snr_towards: (number | null)[] }[];
-  assert.deepEqual(t.route, [SELF, GW, RELAY, NODE]);
-  assert.deepEqual(t.snr_towards, [null, 5, 6]);
+  const tb = t as unknown as { route_back: number[]; snr_back: (number | null)[] };
+  assert.deepEqual(t.route, [GW, RELAY, NODE], 'MeshMap is not a hop');
+  assert.deepEqual(t.snr_towards, [5, 6]);
+  assert.deepEqual(tb.route_back, [NODE, RELAY, GW]);
+  assert.deepEqual(tb.snr_back, [7, 6]);
+});
+
+test('strips MeshMap from traceroutes stored before this change', () => {
+  db.addTraceroute({
+    packetId: 31337, from: SELF, to: NODE, route: [SELF, GW, RELAY, NODE], snrTowards: [null, 5, 6],
+    routeBack: [NODE, RELAY, GW, SELF], snrBack: [7, 6, null], gateway: GW,
+  });
+  const { withoutSelf } = ingest;
+  assert.equal(db.stripNodeFromTraceroutes(SELF, withoutSelf), 1);
+  assert.equal(db.stripNodeFromTraceroutes(SELF, withoutSelf), 0, 'idempotent');
+  const t = (db.listTraceroutes(10) as { packet_id: number; route: number[]; route_back: number[]; snr_back: unknown[] }[])
+    .find((r) => r.packet_id === 31337)!;
+  assert.deepEqual(t.route, [GW, RELAY, NODE]);
+  assert.deepEqual(t.route_back, [NODE, RELAY, GW]);
+  assert.deepEqual(t.snr_back, [7, 6]);
 });

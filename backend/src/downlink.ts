@@ -5,7 +5,7 @@ import { randomInt } from 'node:crypto';
 import { config } from './config.ts';
 import { encrypt } from './crypto.ts';
 import * as db from './db.ts';
-import { gatewayRoutes, selfNodes } from './ingest.ts';
+import { gatewayRoutes, selfNodes, withoutSelf } from './ingest.ts';
 import { encodeMeshPacket, encodeServiceEnvelope, nodeIdFromNum, nodeNumFromId } from './proto/meshtastic.ts';
 
 export type Publish = (topic: string, payload: Buffer) => void;
@@ -32,6 +32,7 @@ export function requesterNodeNum(): number {
   if (!selfNodes.has(num)) {
     selfNodes.add(num);
     db.forgetNode(num); // left over from when its own requests were ingested
+    db.stripNodeFromTraceroutes(num, withoutSelf);
   }
   return num;
 }
