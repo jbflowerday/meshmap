@@ -96,8 +96,9 @@ export function handlePacket(p: MeshPacket, channelId: string, gateway: number |
     hopStart: p.hopStart, hopLimit: p.hopLimit, relayNode: p.relayNode, snr: p.rxSnr, rssi: p.rxRssi, encrypted,
   });
 
-  // Gateway uplinking means it is alive.
-  if (gateway !== null && gateway !== p.from) {
+  // Gateway uplinking means it is alive. A node uplinking only its own packets
+  // (e.g. map reports with channel uplink off) is still MQTT-connected: a gateway.
+  if (gateway !== null) {
     db.touchNode(gateway, nodeIdFromNum(gateway), { is_gateway: 1 });
     events.emit('node', gateway);
   }
