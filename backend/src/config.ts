@@ -15,6 +15,7 @@ const keys = env('MESH_CHANNEL_KEYS', 'AQ==')
   .filter((k): k is Buffer => k !== null);
 
 export const config = {
+  get downlinkConfigured() { return this.nameRequests.enabled || this.traceroutes.enabled; },
   port: num('PORT', 3000),
   dbPath: env('DB_PATH', './data/meshmap.db'),
   mqtt: {
@@ -51,7 +52,7 @@ export const config = {
     longName: env('NAME_REQUEST_LONG_NAME', 'MeshMap'),
     shortName: env('NAME_REQUEST_SHORT_NAME', 'MMap'),
     /** Optional fixed node id for MeshMap's requests, e.g. "!4d4d0001". Random and persisted if unset. */
-    nodeId: process.env.NAME_REQUEST_NODE_ID || undefined,
+    nodeId: process.env.MESHMAP_NODE_ID || process.env.NAME_REQUEST_NODE_ID || undefined,
   },
   /**
    * Send traceroutes to known nodes on a schedule via MQTT downlink, to discover links.

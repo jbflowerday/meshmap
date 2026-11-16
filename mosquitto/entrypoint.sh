@@ -20,10 +20,35 @@ touch "$PASSWD"
 mosquitto_passwd -b "$PASSWD" "$MQTT_BACKEND_USER" "$MQTT_BACKEND_PASSWORD"
 mosquitto_passwd -b "$PASSWD" "$MQTT_NODE_USER" "$MQTT_NODE_PASSWORD"
 
+# Node isolation (default on): nodes may publish anywhere under the root but only
+# receive what MeshMap itself downlinks (topics ending in MeshMap's node id), so
+# gateways never hear each other's uplinks and separate meshes are never bridged.
+ISOLATE="${MQTT_NODE_ISOLATION:-true}"
+MESHMAP_ID="${MESHMAP_NODE_ID:-${NAME_REQUEST_NODE_ID:-}}"
+node_acl() {
+  if [ "$ISOLATE" != "true" ]; then
+    echo "topic readwrite $ROOT/#"
+    return
+  fi
+  echo "topic write $ROOT/#"
+  if [ -n "$MESHMAP_ID" ]; then
+    # Roots of any depth up to 4 levels below $ROOT, e.g. msh/ANZ or msh/ANZ/brd1.
+    # (The ACL file can't stop a node account publishing on these topics too; real
+    # firmware only publishes under its own id, so that needs the node password and intent.)
+    for lvl in "+" "+/+" "+/+/+" "+/+/+/+"; do
+      echo "topic read $ROOT/$lvl/2/e/+/$MESHMAP_ID"
+    done
+  fi
+}
+if [ "$ISOLATE" = "true" ] && [ -z "$MESHMAP_ID" ]; then
+  echo "[meshmap] MQTT_NODE_ISOLATION is on but MESHMAP_NODE_ID is empty: nodes can't receive anything," \
+    "so name requests and traceroutes won't reach the mesh. Set MESHMAP_NODE_ID to MeshMap's node id." >&2
+fi
+
 {
   if [ "${MQTT_ALLOW_ANONYMOUS:-false}" = "true" ]; then
     echo "# anonymous clients"
-    echo "topic readwrite $ROOT/#"
+    node_acl
     echo
   fi
   echo "user $MQTT_BACKEND_USER"
@@ -31,7 +56,7 @@ mosquitto_passwd -b "$PASSWD" "$MQTT_NODE_USER" "$MQTT_NODE_PASSWORD"
   echo "topic readwrite $ROOT/#"
   echo
   echo "user $MQTT_NODE_USER"
-  echo "topic readwrite $ROOT/#"
+  node_acl
 } > "$ACL"
 
 if [ "${MQTT_ALLOW_ANONYMOUS:-false}" = "true" ]; then

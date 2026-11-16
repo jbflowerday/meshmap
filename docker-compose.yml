@@ -11,6 +11,10 @@ services:
       MQTT_NODE_USER: ${MQTT_NODE_USER:-meshdev}
       MQTT_NODE_PASSWORD: ${MQTT_NODE_PASSWORD:?set MQTT_NODE_PASSWORD in .env}
       MQTT_ALLOW_ANONYMOUS: ${MQTT_ALLOW_ANONYMOUS:-false}
+      # Nodes only receive MeshMap's own downlinks, never each other's uplinks
+      MQTT_NODE_ISOLATION: ${MQTT_NODE_ISOLATION:-true}
+      MESHMAP_NODE_ID: ${MESHMAP_NODE_ID:-}
+      NAME_REQUEST_NODE_ID: ${NAME_REQUEST_NODE_ID:-}
     ports:
       - "${MQTT_PORT:-1883}:1883" # Meshtastic nodes connect here
     volumes:
@@ -35,6 +39,7 @@ services:
       NAME_REQUEST_MAX_PER_HOUR: ${NAME_REQUEST_MAX_PER_HOUR:-6}
       NAME_REQUEST_RETRY_HOURS: ${NAME_REQUEST_RETRY_HOURS:-12}
       NAME_REQUEST_NODE_ID: ${NAME_REQUEST_NODE_ID:-}
+      MESHMAP_NODE_ID: ${MESHMAP_NODE_ID:-}
       NAME_REQUEST_LONG_NAME: ${NAME_REQUEST_LONG_NAME:-MeshMap}
       NAME_REQUEST_SHORT_NAME: ${NAME_REQUEST_SHORT_NAME:-MMap}
       AUTO_TRACEROUTES: ${AUTO_TRACEROUTES:-false}
