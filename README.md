@@ -55,19 +55,12 @@ cd meshmap
 cp .env.example .env
 ```
 
-Edit `.env`. These are the settings most setups change; everything else has a sensible default (see [Configuration](#configuration)):
+Edit `.env` and set the two MQTT passwords. Everything else has a sensible default (see [Configuration](#configuration)):
 
 ```ini
 # Required: passwords for the backend's and your nodes' MQTT accounts
 MQTT_BACKEND_PASSWORD=pick-a-long-random-password
 MQTT_NODE_PASSWORD=password-you-will-enter-on-your-nodes
-
-# Recommended: MeshMap's own node ID. Any unused ID works.
-MESHMAP_NODE_ID=!7c10a186
-
-# Optional: where the map opens before nodes load
-MAP_CENTER=39.74,-104.99
-MAP_ZOOM=10
 ```
 
 ### 2. Docker Compose
@@ -84,7 +77,6 @@ services:
       MQTT_BACKEND_PASSWORD: ${MQTT_BACKEND_PASSWORD}
       MQTT_NODE_USER: meshdev
       MQTT_NODE_PASSWORD: ${MQTT_NODE_PASSWORD}
-      MESHMAP_NODE_ID: ${MESHMAP_NODE_ID:-}
     ports:
       - "1883:1883"
     volumes:
@@ -98,17 +90,12 @@ services:
       MQTT_URL: mqtt://mosquitto:1883
       MQTT_USERNAME: meshmap
       MQTT_PASSWORD: ${MQTT_BACKEND_PASSWORD}
-      MESHMAP_NODE_ID: ${MESHMAP_NODE_ID:-}
       MESH_CHANNEL_KEYS: AQ==
     volumes:
       - backend-data:/data
 
   frontend:                       # nginx serving the map and proxying /api and /ws
-    build:
-      context: ./frontend
-      args:
-        VITE_MAP_CENTER: ${MAP_CENTER:-}
-        VITE_MAP_ZOOM: ${MAP_ZOOM:-}
+    build: ./frontend
     restart: unless-stopped
     depends_on: [backend]
     ports:
@@ -179,7 +166,7 @@ Names come only from NODEINFO packets. Nodes broadcast those every ~3 hours and 
 
 A gateway with **Downlink** on transmits whatever it receives on its MQTT topic. On a plain broker that includes other gateways' uplinks, so MQTT would join separate meshes into one. MeshMap's broker prevents this by default (`MQTT_NODE_ISOLATION=true`): the node account can publish anywhere under `msh/`, but can only *receive* topics that end in MeshMap's own node ID. Gateways still get MeshMap's name requests and traceroutes, but never each other's traffic, even on the same root topic.
 
-Set `MESHMAP_NODE_ID` (for example `!7c10a186`) so the broker knows which topics to let through. Without it, the broker lets nodes receive nothing, so downlinked requests stop working, and the backend logs the ID to use. Set `MQTT_NODE_ISOLATION=false` to allow normal MQTT bridging between gateways.
+The broker needs MeshMap's node ID to know which topics to let through. `MESHMAP_NODE_ID` is blank by default, and the backend then picks a random ID once and remembers it. The broker can't see that remembered ID, so with isolation on and `MESHMAP_NODE_ID` blank, nodes receive nothing and name requests and traceroutes don't reach the mesh. If you use either, the backend logs the ID it picked: set `MESHMAP_NODE_ID` to it and restart. Set `MQTT_NODE_ISOLATION=false` to allow normal MQTT bridging between gateways.
 
 Mosquitto's ACL can't stop the node account from *publishing* on MeshMap's topics. Real firmware only publishes under its own ID, so this only matters if someone with the node password does it deliberately.
 
@@ -204,7 +191,7 @@ All settings are in [.env.example](.env.example). The main ones:
 | `MQTT_NODE_USER` / `MQTT_NODE_PASSWORD` | `meshdev` / | Account your nodes and gateways log in with (password required) |
 | `MQTT_BACKEND_USER` / `MQTT_BACKEND_PASSWORD` | `meshmap` / | Account the backend uses (password required) |
 | `MQTT_PORT` / `WEB_PORT` | `1883` / `8080` | Published ports for the broker and the web UI |
-| `MESHMAP_NODE_ID` | random | MeshMap's own node ID, for example `!7c10a186`. Needed by node isolation and downlinked requests. |
+| `MESHMAP_NODE_ID` | blank | MeshMap's own node ID. Blank means random, picked once and remembered. Set it when using name requests or traceroutes with [node isolation](#keeping-meshes-separate-node-isolation). |
 | `MQTT_NODE_ISOLATION` | `true` | Nodes only receive MeshMap's own downlinks (see [node isolation](#keeping-meshes-separate-node-isolation)) |
 | `MESH_CHANNEL_KEYS` | `AQ==` | Base64 PSKs to try when decrypting |
 | `RETENTION_DAYS` | `7` | How long position, telemetry, packet and traceroute history is kept |
