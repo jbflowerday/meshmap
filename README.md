@@ -45,38 +45,135 @@ Meshtastic nodes ──MQTT──▶ mosquitto :1883 ──▶ backend (Node 24,
 
 ## Quick start
 
+MeshMap runs as three containers built from this repo: the MQTT broker, the backend and the web frontend.
+
+### 1. Docker config
+
 ```bash
-cp .env.example .env      # then edit the passwords
+git clone https://github.com/jbflowerday/meshmap.git
+cd meshmap
+cp .env.example .env
+```
+
+Edit `.env`. These are the settings most setups change; everything else has a sensible default (see [Configuration](#configuration)):
+
+```ini
+# Required: passwords for the backend's and your nodes' MQTT accounts
+MQTT_BACKEND_PASSWORD=pick-a-long-random-password
+MQTT_NODE_PASSWORD=password-you-will-enter-on-your-nodes
+
+# Recommended: MeshMap's own node ID. Any unused ID works.
+MESHMAP_NODE_ID=!7c10a186
+
+# Optional: where the map opens before nodes load
+MAP_CENTER=39.74,-104.99
+MAP_ZOOM=10
+```
+
+### 2. Docker Compose
+
+The repo's [docker-compose.yml](docker-compose.yml) reads `.env` and passes every setting through. Stripped to its essentials, it looks like this:
+
+```yaml
+services:
+  mosquitto:                      # MQTT broker your nodes connect to
+    build: ./mosquitto
+    restart: unless-stopped
+    environment:
+      MQTT_BACKEND_USER: meshmap
+      MQTT_BACKEND_PASSWORD: ${MQTT_BACKEND_PASSWORD}
+      MQTT_NODE_USER: meshdev
+      MQTT_NODE_PASSWORD: ${MQTT_NODE_PASSWORD}
+      MESHMAP_NODE_ID: ${MESHMAP_NODE_ID:-}
+    ports:
+      - "1883:1883"
+    volumes:
+      - mosquitto-data:/mosquitto/data
+
+  backend:                        # decodes packets, stores them in SQLite, serves /api and /ws
+    build: ./backend
+    restart: unless-stopped
+    depends_on: [mosquitto]
+    environment:
+      MQTT_URL: mqtt://mosquitto:1883
+      MQTT_USERNAME: meshmap
+      MQTT_PASSWORD: ${MQTT_BACKEND_PASSWORD}
+      MESHMAP_NODE_ID: ${MESHMAP_NODE_ID:-}
+      MESH_CHANNEL_KEYS: AQ==
+    volumes:
+      - backend-data:/data
+
+  frontend:                       # nginx serving the map and proxying /api and /ws
+    build:
+      context: ./frontend
+      args:
+        VITE_MAP_CENTER: ${MAP_CENTER:-}
+        VITE_MAP_ZOOM: ${MAP_ZOOM:-}
+    restart: unless-stopped
+    depends_on: [backend]
+    ports:
+      - "8080:80"
+
+volumes:
+  mosquitto-data:
+  backend-data:
+```
+
+Start it:
+
+```bash
 docker compose up -d --build
 ```
 
-Open `http://<host>:8080`. For production, put it behind a TLS reverse proxy such as Caddy, Traefik or nginx. The proxy must forward WebSocket upgrades on `/ws`. Port `1883` must be reachable by your nodes or gateways.
+Open `http://<host>:8080`. Port `1883` must be reachable by your gateways. For a public site, see [Running in production](#running-in-production).
 
-### Configure your Meshtastic nodes
+### 3. Configure your Meshtastic nodes
 
 On each node that has internet access (WiFi, Ethernet, or a phone with "client proxy"):
 
 1. **Module config → MQTT**
    - Enabled: on
    - Server address: `your.host:1883`
-   - Username / password: `MQTT_NODE_USER` / `MQTT_NODE_PASSWORD` from `.env`
+   - Username / password: `MQTT_NODE_USER` / `MQTT_NODE_PASSWORD` from `.env` (`meshdev` is the default username)
    - Root topic: `msh/<REGION>`, for example `msh/US`
    - Encryption enabled: on (recommended; the backend decrypts using `MESH_CHANNEL_KEYS`)
    - JSON enabled: optional (ESP32 only)
    - TLS: off, unless you terminate TLS in front of the broker
    - Map reporting: optional; it adds firmware version, region and modem preset
 2. **Channels → primary channel → Uplink enabled:** on
-3. Optional extra data:
-   - Turn on the **NeighborInfo** module for neighbour links.
-   - Run traceroutes from the app to discover paths, or let MeshMap schedule them (below).
 
-**Automatic name requests (optional):** set `NAME_REQUESTS=true` and turn on **Downlink** for the gateway's primary channel. MeshMap then asks unnamed nodes for their name, the same way *Exchange user info* in the app does. Requests go out through the gateway that last heard the node, from MeshMap's own node ID (`nodeId` in `/api/stats`). They're rate limited to one every 30 s, `NAME_REQUEST_MAX_PER_HOUR` per hour, and once per node every `NAME_REQUEST_RETRY_HOURS`. The gateway must uplink with MQTT encryption on, because that's how MeshMap learns the channel's key and hash.
+Nodes appear on the map as their packets arrive. For more links and names, see [Setup details](#setup-details).
 
-**Scheduled traceroutes (optional):** set `AUTO_TRACEROUTES=true` and turn on **Downlink** for the gateway's primary channel. MeshMap then sends a traceroute to one known node at a time, through the gateway that last heard it, and the reply adds the full path in both directions to the map. It skips nodes a gateway hears directly, since that link is already known, and prefers nodes it hasn't traced yet. Every traceroute floods the mesh, so the limits are deliberately low and all set in `.env`: at most `TRACEROUTE_MAX_PER_HOUR` per hour, `TRACEROUTE_MIN_INTERVAL_SECONDS` apart, each node once every `TRACEROUTE_RETRY_HOURS`, only nodes heard in the last `TRACEROUTE_HEARD_WITHIN_MINUTES`, and only nodes between `TRACEROUTE_MIN_HOPS_AWAY` (default 1) and `TRACEROUTE_MAX_HOPS_AWAY` hops out. MeshMap also never sends two packets of any kind within 30 s. It uses the same node ID as name requests (`MESHMAP_NODE_ID`). That node isn't on RF, so its legs are left off the map; the gateways it sent and received through are added to the path instead. Progress is in `/api/stats` under `autoTraceroutes`.
+## Setup details
 
-**Why some nodes show a hex ID instead of a name:** names come only from NODEINFO packets. Nodes broadcast those every ~3 hours and shortly after a reboot. Until one arrives, the map labels the node with the last 4 hex digits of its ID, drawn dashed and italic. To get the name sooner, use **Exchange user info** on that node in the Meshtastic app, or turn on Map Reporting on your gateways.
+### Running in production
+
+Put MeshMap behind a TLS reverse proxy such as Caddy, Traefik or nginx. The proxy must forward WebSocket upgrades on `/ws`. The broker on port `1883` is separate from the web UI and is reached by your gateways directly.
+
+### More link data
+
+- Turn on the **NeighborInfo** module on your nodes for neighbour links with SNR.
+- Run traceroutes from the Meshtastic app to discover paths, or let MeshMap schedule them (below).
+
+### Automatic name requests
+
+Set `NAME_REQUESTS=true` and turn on **Downlink** for the gateway's primary channel. MeshMap then asks unnamed nodes for their name, the same way *Exchange user info* in the app does. Requests go out through the gateway that last heard the node, from MeshMap's own node ID (`nodeId` in `/api/stats`). They're rate limited to one every 30 s, `NAME_REQUEST_MAX_PER_HOUR` per hour, and once per node every `NAME_REQUEST_RETRY_HOURS`. The gateway must uplink with MQTT encryption on, because that's how MeshMap learns the channel's key and hash.
+
+### Scheduled traceroutes
+
+Set `AUTO_TRACEROUTES=true` and turn on **Downlink** for the gateway's primary channel. MeshMap then sends a traceroute to one known node at a time, through the gateway that last heard it, and the reply adds the full path in both directions to the map. It skips nodes a gateway hears directly, since that link is already known, and prefers nodes it hasn't traced yet.
+
+Every traceroute floods the mesh, so the limits are deliberately low and all set in `.env`: at most `TRACEROUTE_MAX_PER_HOUR` per hour, `TRACEROUTE_MIN_INTERVAL_SECONDS` apart, each node once every `TRACEROUTE_RETRY_HOURS`, only nodes heard in the last `TRACEROUTE_HEARD_WITHIN_MINUTES`, and only nodes between `TRACEROUTE_MIN_HOPS_AWAY` (default 1) and `TRACEROUTE_MAX_HOPS_AWAY` hops out. MeshMap also never sends two packets of any kind within 30 s.
+
+It uses the same node ID as name requests (`MESHMAP_NODE_ID`). That node isn't on RF, so its legs are left off the map; the gateways it sent and received through are added to the path instead. Progress is in `/api/stats` under `autoTraceroutes`.
+
+### Custom channel keys
 
 If your channel uses a custom PSK, add its base64 key to `MESH_CHANNEL_KEYS`, separated by commas. DMs encrypted with PKI can't be decrypted. Those packets still count toward hops and direct links.
+
+### Why some nodes show a hex ID instead of a name
+
+Names come only from NODEINFO packets. Nodes broadcast those every ~3 hours and shortly after a reboot. Until one arrives, the map labels the node with the last 4 hex digits of its ID, drawn dashed and italic. To get the name sooner, use **Exchange user info** on that node in the Meshtastic app, turn on Map Reporting on your gateways, or turn on [automatic name requests](#automatic-name-requests).
 
 ### Keeping meshes separate (node isolation)
 
@@ -108,14 +205,14 @@ All settings are in [.env.example](.env.example). The main ones:
 | `MQTT_BACKEND_USER` / `MQTT_BACKEND_PASSWORD` | `meshmap` / | Account the backend uses (password required) |
 | `MQTT_PORT` / `WEB_PORT` | `1883` / `8080` | Published ports for the broker and the web UI |
 | `MESHMAP_NODE_ID` | random | MeshMap's own node ID, for example `!7c10a186`. Needed by node isolation and downlinked requests. |
-| `MQTT_NODE_ISOLATION` | `true` | Nodes only receive MeshMap's own downlinks (see above) |
+| `MQTT_NODE_ISOLATION` | `true` | Nodes only receive MeshMap's own downlinks (see [node isolation](#keeping-meshes-separate-node-isolation)) |
 | `MESH_CHANNEL_KEYS` | `AQ==` | Base64 PSKs to try when decrypting |
 | `RETENTION_DAYS` | `7` | How long position, telemetry, packet and traceroute history is kept |
 | `NODE_MAX_AGE_DAYS` | `30` | Nodes not heard for this long are removed |
 | `LINK_MAX_AGE_HOURS` | `72` | Links not refreshed for this long are removed |
-| `NAME_REQUESTS` | `false` | Ask unnamed nodes for their name over downlink (see above) |
+| `NAME_REQUESTS` | `false` | Ask unnamed nodes for their name over downlink (see [name requests](#automatic-name-requests)) |
 | `NAME_REQUEST_MAX_PER_HOUR` | `6` | Hourly cap on name requests |
-| `AUTO_TRACEROUTES` | `false` | Send rate-limited traceroutes on a schedule (see above) |
+| `AUTO_TRACEROUTES` | `false` | Send rate-limited traceroutes on a schedule (see [scheduled traceroutes](#scheduled-traceroutes)) |
 | `TRACEROUTE_MAX_PER_HOUR` | `4` | Hourly cap on scheduled traceroutes |
 | `MIN_PRECISION_BITS` | `0` | Hides positions coarser than this |
 | `SITE_TITLE` | `MeshMap` | Title shown in the header and browser tab |
