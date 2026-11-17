@@ -29,6 +29,23 @@ const STACK = Number(arg('stack', '0'));
 // --quiet N: N non-gateway nodes never announce their name on their own, but do
 // answer NODEINFO requests that arrive via MQTT downlink (tests NAME_REQUESTS)
 const QUIET = Number(arg('quiet', '0'));
+// --demo: realistic node names instead of "Sim Node NN" (for screenshots)
+const DEMO = args.includes('--demo');
+const DEMO_ROUTERS = [
+  ['Lookout Mtn Router', 'LKMT'], ['Green Mtn Repeater', 'GRMT'], ['Squaw Pass Relay', 'SQPS'],
+  ['Mt Morrison Router', 'MORR'], ['Table Mesa Relay', 'TBLM'], ['Cherry Creek Tower', 'CCTW'],
+];
+const DEMO_NODES = [
+  ['Capitol Hill Base', 'CAPH'], ['Wash Park Handheld', 'WPHH'], ['RiNo Rooftop', 'RINO'],
+  ['Highlands Solar', 'HLND'], ['Sloan Lake T-Echo', 'SLKE'], ['Aurora Porch', 'AURA'],
+  ['Golden Bike Tracker', 'GBIK'], ['Englewood Attic', 'ENGL'], ['Lakewood Base', 'LKWD'],
+  ['Arvada Window', 'ARVD'], ['Littleton Car', 'LTCR'], ['Edgewater Balcony', 'EDGW'],
+  ['Westminster Base', 'WSTM'], ['Thornton Garage', 'THRN'], ['Glendale Office', 'GLND'],
+  ['Baker Handheld', 'BAKR'], ['Five Points Node', 'FVPT'], ['Berkeley Heltec', 'BRKY'],
+  ['Wheat Ridge Mast', 'WHRG'], ['Cherry Hills Node', 'CHHL'], ['Hike Tracker', 'HIKE'],
+  ['Stapleton Base', 'STPL'], ['Federal Heights', 'FDHT'], ['Sheridan Porch', 'SHRD'],
+  ['Morrison Cabin', 'MRSN'], ['Commerce City', 'CMCY'], ['Centennial Node', 'CNTN'],
+];
 
 if (args.includes('--broker')) {
   const { Aedes } = await import('aedes');
@@ -48,10 +65,11 @@ const nodes: SimNode[] = Array.from({ length: N }, (_, i) => {
   const r = Math.sqrt(Math.random()) * 0.25; // ~25 km radius
   const th = Math.random() * Math.PI * 2;
   const router = i % 7 === 0;
+  const demo = DEMO ? (router ? DEMO_ROUTERS[Math.floor(i / 7) % DEMO_ROUTERS.length] : DEMO_NODES[(i - Math.ceil(i / 7)) % DEMO_NODES.length]) : null;
   return {
     num: (0x5a000000 + randomInt(0xffffff)) >>> 0,
-    name: router ? `Sim Router ${String(i + 1).padStart(2, '0')}` : `Sim Node ${String(i + 1).padStart(2, '0')}`,
-    short: router ? `R${String(i + 1).padStart(2, '0')}` : `S${String(i + 1).padStart(2, '0')}`,
+    name: demo ? demo[0] : router ? `Sim Router ${String(i + 1).padStart(2, '0')}` : `Sim Node ${String(i + 1).padStart(2, '0')}`,
+    short: demo ? demo[1] : router ? `R${String(i + 1).padStart(2, '0')}` : `S${String(i + 1).padStart(2, '0')}`,
     lat: CENTER.lat + r * Math.cos(th),
     lon: CENTER.lon + (r * Math.sin(th)) / Math.cos((CENTER.lat * Math.PI) / 180),
     alt: Math.round(rand(1550, router ? 2600 : 1800)),

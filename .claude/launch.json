@@ -6,6 +6,18 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "frontend", "run", "dev", "--", "--port", "5173"],
       "port": 5173
+    },
+    {
+      "name": "simulator",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "backend", "run", "simulate", "--", "--broker", "--demo", "--nodes", "32", "--interval", "250"],
+      "port": 1883
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["DB_PATH=./data/demo.db", "npm", "--prefix", "backend", "run", "start"],
+      "port": 3000
     }
   ]
 }

@@ -2,6 +2,8 @@
 
 A self-hosted, public-facing live map for a [Meshtastic](https://meshtastic.org) mesh. It shows each node's details and the RF links and hop counts between nodes.
 
+![MeshMap showing a 32-node mesh with links coloured by SNR](docs/screenshots/map.jpg)
+
 ```
 Meshtastic nodes ──MQTT──▶ mosquitto :1883 ──▶ backend (Node 24, SQLite) ──/api + /ws──▶ frontend (nginx, React) :8080
 ```
@@ -21,6 +23,16 @@ Meshtastic nodes ──MQTT──▶ mosquitto :1883 ──▶ backend (Node 24,
 - **Activity:** a live feed of packets.
 - **Mobile and desktop:** desktop uses a sidebar. Phones get a full-screen map with a draggable bottom sheet.
 - **Base layers:** dark, streets or satellite.
+
+### Screenshots
+
+| Node details | Fewest-hop route |
+|---|---|
+| ![Node details with telemetry sparklines and RF neighbours](docs/screenshots/node-detail.jpg) | ![Route between two nodes with per-link SNR](docs/screenshots/route.jpg) |
+| **Activity feed** | **Mobile** |
+| ![Live packet activity feed](docs/screenshots/activity.jpg) | <img src="docs/screenshots/mobile.jpg" alt="Mobile map with bottom sheet" width="48%"> <img src="docs/screenshots/mobile-detail.jpg" alt="Mobile node details" width="48%"> |
+
+<sub>Screenshots use simulated data: `npm run simulate -- --broker --demo` (see [Development](#development)).</sub>
 
 ### Where hop and link data comes from
 
@@ -137,4 +149,4 @@ Pointing the simulator at the Docker broker also works:
 MQTT_USERNAME=meshdev MQTT_PASSWORD=... npm run simulate -- --url mqtt://localhost:1883
 ```
 
-Simulator gateways answer downlinked traceroutes, so `AUTO_TRACEROUTES=true TRACEROUTE_MIN_INTERVAL_SECONDS=0` can be tested locally. Simulator options are `--nodes N`, `--interval ms`, `--stack N` (puts N extra nodes at the same spot, to test overlapping markers) and `--quiet N` (N nodes that never announce their name but answer name requests sent over downlink). Set `SIM_LAT` and `SIM_LON` to move the fake mesh.
+Simulator gateways answer downlinked traceroutes, so `AUTO_TRACEROUTES=true TRACEROUTE_MIN_INTERVAL_SECONDS=0` can be tested locally. Simulator options are `--demo` (realistic node names, used for the screenshots), `--nodes N`, `--interval ms`, `--stack N` (puts N extra nodes at the same spot, to test overlapping markers) and `--quiet N` (N nodes that never announce their name but answer name requests sent over downlink). Set `SIM_LAT` and `SIM_LON` to move the fake mesh.
