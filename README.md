@@ -104,15 +104,25 @@ All settings are in [.env.example](.env.example). The main ones:
 
 | Variable | Default | |
 |---|---|---|
+| `MQTT_NODE_USER` / `MQTT_NODE_PASSWORD` | `meshdev` / | Account your nodes and gateways log in with (password required) |
+| `MQTT_BACKEND_USER` / `MQTT_BACKEND_PASSWORD` | `meshmap` / | Account the backend uses (password required) |
+| `MQTT_PORT` / `WEB_PORT` | `1883` / `8080` | Published ports for the broker and the web UI |
+| `MESHMAP_NODE_ID` | random | MeshMap's own node ID, for example `!7c10a186`. Needed by node isolation and downlinked requests. |
+| `MQTT_NODE_ISOLATION` | `true` | Nodes only receive MeshMap's own downlinks (see above) |
 | `MESH_CHANNEL_KEYS` | `AQ==` | Base64 PSKs to try when decrypting |
 | `RETENTION_DAYS` | `7` | How long position, telemetry, packet and traceroute history is kept |
 | `NODE_MAX_AGE_DAYS` | `30` | Nodes not heard for this long are removed |
 | `LINK_MAX_AGE_HOURS` | `72` | Links not refreshed for this long are removed |
+| `NAME_REQUESTS` | `false` | Ask unnamed nodes for their name over downlink (see above) |
+| `NAME_REQUEST_MAX_PER_HOUR` | `6` | Hourly cap on name requests |
 | `AUTO_TRACEROUTES` | `false` | Send rate-limited traceroutes on a schedule (see above) |
 | `TRACEROUTE_MAX_PER_HOUR` | `4` | Hourly cap on scheduled traceroutes |
 | `MIN_PRECISION_BITS` | `0` | Hides positions coarser than this |
-| `MAP_CENTER` / `MAP_ZOOM` | | Initial view before nodes load |
-| `TILE_URL` | | Your own dark tile server. The default is OpenStreetMap with a dark CSS filter. |
+| `SITE_TITLE` | `MeshMap` | Title shown in the header and browser tab |
+| `MAP_CENTER` / `MAP_ZOOM` | | Initial view before nodes load, as `lat,lon` and a zoom level |
+| `TILE_URL` / `TILE_ATTRIBUTION` | | Your own dark tile server and its credit line. The default is OpenStreetMap with a dark CSS filter. |
+
+`SITE_TITLE`, `MAP_CENTER`, `MAP_ZOOM`, `TILE_URL` and `TILE_ATTRIBUTION` are baked into the frontend at build time, so run `docker compose up -d --build` after changing them.
 
 > **Tiles:** the default OpenStreetMap tiles are fine for light use. A busy public site should use its own tile provider, such as Stadia, MapTiler or a self-hosted server, via `TILE_URL`. See the [OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/).
 
@@ -125,7 +135,8 @@ All settings are in [.env.example](.env.example). The main ones:
 | `GET /api/links` | Directed links: `to_num` heard `from_num` at `snr` |
 | `GET /api/traceroutes?limit=100` | Recent traceroutes, with full paths that include both endpoints |
 | `GET /api/packets?limit=100` | Recent receptions |
-| `GET /api/stats` | Counts and ingest counters |
+| `GET /api/stats` | Counts, ingest counters, and `nameRequests` / `autoTraceroutes` status |
+| `GET /api/health` | `{ok: true, counters}` for health checks |
 | `WS /ws` | `{type:"update", nodes, links, packets, traceroutes}`, batched once per second |
 
 ## Development
@@ -139,7 +150,7 @@ npm run simulate -- --broker &      # fake encrypted Meshtastic traffic on :1883
 npm run dev                         # API on :3000
 npm test
 
-# frontend (proxies /api and /ws to :3000)
+# frontend (proxies /api and /ws to :3000; set BACKEND_URL to point elsewhere)
 cd frontend && npm install && npm run dev   # http://localhost:5173
 ```
 
@@ -150,3 +161,14 @@ MQTT_USERNAME=meshdev MQTT_PASSWORD=... npm run simulate -- --url mqtt://localho
 ```
 
 Simulator gateways answer downlinked traceroutes, so `AUTO_TRACEROUTES=true TRACEROUTE_MIN_INTERVAL_SECONDS=0` can be tested locally. Simulator options are `--demo` (realistic node names, used for the screenshots), `--nodes N`, `--interval ms`, `--stack N` (puts N extra nodes at the same spot, to test overlapping markers) and `--quiet N` (N nodes that never announce their name but answer name requests sent over downlink). Set `SIM_LAT` and `SIM_LON` to move the fake mesh.
+
+When running the backend outside Docker, `PORT` (default `3000`) and `DB_PATH` (default `./data/meshmap.db`) set where it listens and stores data. [.claude/launch.json](.claude/launch.json) has `simulator`, `backend` and `frontend` entries that start the demo setup used for the screenshots, with the backend writing to `backend/data/demo.db`.
+
+## CI and deployment
+
+[.github/workflows/ci-deploy.yml](.github/workflows/ci-deploy.yml) runs on every push and pull request: backend typecheck and tests, then a frontend build. Pushes to `main` also deploy through Arcane when it is configured: it syncs the repo, builds the images on the server and brings the project up. Deployment is skipped unless these are set under the repo's **Settings → Secrets and variables → Actions**:
+
+| Name | Type |
+|---|---|
+| `ARCANE_API_KEY` | secret |
+| `ARCANE_URL`, `ARCANE_ENV_ID`, `ARCANE_SYNC_ID`, `ARCANE_PROJECT_ID` | variables |
